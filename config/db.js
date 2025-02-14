@@ -4,10 +4,10 @@ const dotenv = require("dotenv");
 dotenv.config(); // Load environment variables
 
 const db = mysql.createConnection({
-  host: process.env.DB_HOST || "sql12.freesqldatabase.com",
-  user: process.env.DB_USER || "sql12762426",
-  password: process.env.DB_PASS || "x9hq1SYLx3",
-  database: process.env.DB_NAME || "sql12762426",
+  host: process.env.DB_HOST || "",
+  user: process.env.DB_USER || "",
+  password: process.env.DB_PASS || "",
+  database: process.env.DB_NAME || "",
 });
 
 db.connect((err) => {
