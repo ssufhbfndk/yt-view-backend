@@ -19,7 +19,7 @@ app.use(bodyParser.json());
 
 // Middleware
 app.use(express.json());
-app.use(cors({ origin: "http://localhost:3000", credentials: true }));
+app.use(cors({ origin: `https://yt-view-front.vercel.app/`, credentials: true }));
 app.use(sessionMiddleware);
 
 // Test Route
