@@ -18,7 +18,7 @@ app.use(bodyParser.json());
 
 // Middleware
 app.use(express.json());
-
+app.use(sessionMiddleware);
 const allowedOrigins = [
   "https://yt-view-front.vercel.app", // ✅ Allow frontend domain
   "http://localhost:3000" // ✅ Allow local development
@@ -50,7 +50,7 @@ app.use(cors({
 }));
 
 
-app.use(sessionMiddleware);
+
 
 
 
