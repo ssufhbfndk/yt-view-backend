@@ -3,30 +3,50 @@ const dotenv = require("dotenv");
 
 dotenv.config(); // Load environment variables
 
-const db = mysql.createConnection({
-  host: process.env.DB_HOST || "",
-  user: process.env.DB_USER || "",
-  password: process.env.DB_PASSWORD || "", 
+// ✅ Create a MySQL Connection Pool
+const pool = mysql.createPool({
+  host: process.env.DB_HOST || "localhost",
+  user: process.env.DB_USER || "root",
+  password: process.env.DB_PASSWORD || "",
   database: process.env.DB_NAME || "",
+  waitForConnections: true,
+  connectionLimit: 10, // ✅ Allows multiple connections
+  queueLimit: 0,
 });
 
-db.connect((err) => {
-  if (err) {
-    console.error("❌ Database Connection Failed:", err.message);
-    process.exit(1); // Exit process if DB connection fails
-  } else {
-    console.log("✅ MySQL Connected...");
-  }
-});
+// ✅ Function for callback-based queries (same as before)
+const db = {
+  query: (sql, params, callback) => {
+    pool.getConnection((err, connection) => {
+      if (err) {
+        console.error("❌ Database Connection Error:", err.message);
+        return callback(err, null);
+      }
 
-// ✅ Use Promise-based queries
-db.queryAsync = (sql, params) => {
-  return new Promise((resolve, reject) => {
-    db.query(sql, params, (err, results) => {
-      if (err) reject(err);
-      else resolve(results);
+      connection.query(sql, params, (queryErr, results) => {
+        connection.release(); // ✅ Release connection after query execution
+        callback(queryErr, results);
+      });
     });
-  });
+  },
+
+  // ✅ Function for promise-based queries (same as before)
+  queryAsync: (sql, params = []) => {
+    return new Promise((resolve, reject) => {
+      pool.getConnection((err, connection) => {
+        if (err) {
+          console.error("❌ Database Connection Error:", err.message);
+          return reject(err);
+        }
+
+        connection.query(sql, params, (queryErr, results) => {
+          connection.release(); // ✅ Always release connection
+          if (queryErr) reject(queryErr);
+          else resolve(results);
+        });
+      });
+    });
+  },
 };
 
 module.exports = db;
