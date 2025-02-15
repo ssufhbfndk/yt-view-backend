@@ -16,29 +16,36 @@ const PORT = process.env.PORT || 5000;
 app.use(bodyParser.json());
 
 
-// Define allowed origins
+// ✅ Define allowed origins
 const allowedOrigins = [
   "https://yt-view-front.vercel.app", // Frontend URL
   "http://localhost:3000" // Local development
 ];
 
-// Global CORS Middleware (Place this as early as possible)
+// ✅ CORS Middleware (Put this before all routes)
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Credentials", "true"); // ✅ Required for session cookies
   }
 
   if (req.method === "OPTIONS") {
-    return res.status(200).end();
+    return res.status(200).end(); // ✅ Preflight request handling
   }
+
   next();
 });
 
-// Now add body parsers, session middleware, etc.
+// ✅ Use CORS package globally (Optional, but recommended)
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true
+}));
+
+// ✅ Other middlewares (place after CORS)
 app.use(express.json());
 app.use(sessionMiddleware);
 
