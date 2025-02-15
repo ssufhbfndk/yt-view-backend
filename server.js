@@ -15,35 +15,38 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 app.use(bodyParser.json());
 
-/* Allowed origins
-const allowedOrigins = [
-  "https://yt-view-front.vercel.app",  // Aapka frontend origin
-  "http://localhost:3000"  // Localhost testing ke liye
-];*/
-
-
 
 // Middleware
-app.use(express.json());
+const allowedOrigins = [
+  "https://yt-view-front.vercel.app", // ✅ Allow frontend domain
+  "http://localhost:3000" // ✅ Allow local development
+];
 
-// ✅ Define allowed origins
-const allowedOrigins = ["https://yt-view-front.vercel.app"];
+// ✅ Global CORS Middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Credentials", "true"); // ✅ Allow cookies/sessions
+  }
 
+  if (req.method === "OPTIONS") {
+    return res.status(200).end(); // ✅ Handle preflight requests
+  }
+
+  next();
+});
+
+// ✅ Use CORS Middleware
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  credentials: true,
+  origin: allowedOrigins,
+  credentials: true, 
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
-// ✅ Handle CORS Preflight requests
-app.options("*", cors());
 
 app.use(sessionMiddleware);
 
