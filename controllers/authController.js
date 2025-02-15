@@ -2,6 +2,8 @@ const db = require("../config/db"); // ✅ Ensure correct database import
 
 // 🔹 Admin Login
 exports.login = async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "https://yt-view-front.vercel.app");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
   try {
     const { username, password } = req.body;
 

@@ -1,6 +1,8 @@
 const db = require("../config/db"); // ✅ Ensure correct database import
 
 exports.userClientLogin = (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "https://yt-view-front.vercel.app");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
   const { username } = req.body;
 
   if (!username) {
@@ -10,6 +12,7 @@ exports.userClientLogin = (req, res) => {
   const query = "SELECT * FROM user WHERE username = ?";
 
   db.queryAsync(query, [username], (err, results) => {
+
     if (err) {
       console.error("Database error:", err);
       return res.status(500).json({ success: false, message: "Database error." });
