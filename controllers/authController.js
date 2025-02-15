@@ -52,14 +52,17 @@ exports.logout = async (req, res) => {
 // 🔹 Check Admin Session
 exports.checkAdminSession = (req, res) => {
   try {
-    if (req.session && req.session.admin) {
+    if (!req.session) {
+      return res.status(400).json({ success: false, message: "Session not initialized." });
+    }
+
+    if (req.session.admin) {
       return res.json({ success: true, admin: req.session.admin });
     } else {
-      return res.json({ success: false, message: "No active session." });
+      return res.json({ success: false, message: "No active admin session." });
     }
   } catch (error) {
-    console.error("❌ Session Check Error:", error);
+    console.error("❌ Admin Session Check Error:", error);
     return res.status(500).json({ success: false, message: "Server error while checking session." });
   }
 };
-
