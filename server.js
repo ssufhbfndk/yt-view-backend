@@ -25,7 +25,7 @@ const allowedOrigins = [
 
 // Middleware
 app.use(express.json());
-app.use(sessionMiddleware);
+
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) {
@@ -64,9 +64,9 @@ app.use(cors({
 // Preflight request handle karein
 app.options("*", cors());
 
+app.use(sessionMiddleware);
 
-// Test Route
-app.get("/", (req, res) => res.send("✅ Server is Running!"));
+
 
 // Routes
 //app.use("/api/auth", authRoutes);
