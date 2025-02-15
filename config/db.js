@@ -1,38 +1,32 @@
-const mysql = require("mysql2/promise");
-require("dotenv").config(); // Load environment variables
+const mysql = require("mysql2");
+const dotenv = require("dotenv");
 
-// ✅ Create MySQL Connection Pool
-const pool = mysql.createPool({
-  host: process.env.DB_HOST || "localhost",
-  user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "",
+dotenv.config(); // Load environment variables
+
+const db = mysql.createConnection({
+  host: process.env.DB_HOST || "",
+  user: process.env.DB_USER || "",
+  password: process.env.DB_PASSWORD || "", 
   database: process.env.DB_NAME || "",
-  waitForConnections: true,
-  connectionLimit: 10, // Adjust as needed
-  queueLimit: 0,
 });
 
-// ✅ Test Database Connection
-(async () => {
-  try {
-    const connection = await pool.getConnection();
-    console.log("✅ MySQL Connected...");
-    connection.release(); // Release connection
-  } catch (err) {
+db.connect((err) => {
+  if (err) {
     console.error("❌ Database Connection Failed:", err.message);
     process.exit(1); // Exit process if DB connection fails
+  } else {
+    console.log("✅ MySQL Connected...");
   }
-})();
+});
 
-// ✅ Function for Async Queries
-const queryAsync = async (sql, params) => {
-  try {
-    const [rows] = await pool.execute(sql, params);
-    return rows;
-  } catch (err) {
-    console.error("❌ Database Query Error:", err.message);
-    throw err;
-  }
+// ✅ Use Promise-based queries
+db.queryAsync = (sql, params) => {
+  return new Promise((resolve, reject) => {
+    db.query(sql, params, (err, results) => {
+      if (err) reject(err);
+      else resolve(results);
+    });
+  });
 };
 
-module.exports = { pool, queryAsync };
+module.exports = db;

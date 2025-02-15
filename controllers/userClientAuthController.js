@@ -9,7 +9,7 @@ exports.userClientLogin = (req, res) => {
 
   const query = "SELECT * FROM user WHERE username = ?";
 
-  db.query(query, [username], (err, results) => {
+  db.queryAsync(query, [username], (err, results) => {
     if (err) {
       console.error("Database error:", err);
       return res.status(500).json({ success: false, message: "Database error." });

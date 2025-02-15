@@ -94,7 +94,7 @@ router.post('/process', async (req, res) => {
 
       // Step 3: Check if orderId or videoLink exists in the database
       const checkQuery = 'SELECT * FROM orders WHERE order_id = ? OR video_link = ?';
-      db.query(checkQuery, [orderId, videoLink], (err, results) => {
+      db.queryAsync(checkQuery, [orderId, videoLink], (err, results) => {
         if (err) {
           return res.status(500).json({ message: 'Database error' });
         }
@@ -103,7 +103,7 @@ router.post('/process', async (req, res) => {
           // If exists, insert into error table
           const errorQuery =
             'INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())';
-          db.query(errorQuery, [orderId, videoLink, originalQuantity, remaining], (err) => {
+          db.queryAsync(errorQuery, [orderId, videoLink, originalQuantity, remaining], (err) => {
             if (err) {
               return res.status(500).json({ message: 'Failed to insert into error table' });
             }
@@ -112,7 +112,7 @@ router.post('/process', async (req, res) => {
           // If not exists, insert into orders table
           const orderQuery =
             'INSERT INTO orders (order_id, video_link, quantity, remaining) VALUES (?, ?, ?, ?)';
-          db.query(orderQuery, [orderId, videoLink, originalQuantity, remaining], (err) => {
+          db.queryAsync(orderQuery, [orderId, videoLink, originalQuantity, remaining], (err) => {
             if (err) {
               return res.status(500).json({ message: 'Failed to insert into orders table' });
             }
@@ -136,7 +136,7 @@ router.get('/ordersData', async (req, res) => {
     const tempOrdersQuery = 'SELECT order_id, video_link, quantity, remaining, "temp_orders" AS tableName FROM temp_orders';
 
     // Execute both queries
-    db.query(ordersQuery + ' UNION ' + tempOrdersQuery, (err, result) => {
+    db.queryAsync(ordersQuery + ' UNION ' + tempOrdersQuery, (err, result) => {
       if (err) {
         return res.status(500).json({ message: 'Error fetching orders from database' });
       }
@@ -160,7 +160,7 @@ router.delete('/ordersData/:orderId', async (req, res) => {
   try {
     const deleteQuery = `DELETE FROM ${table} WHERE order_id = ?`;
 
-    db.query(deleteQuery, [orderId], (err, result) => {
+    db.queryAsync(deleteQuery, [orderId], (err, result) => {
       if (err) {
         return res.status(500).json({ message: 'Failed to delete order' });
       }
@@ -175,7 +175,7 @@ router.delete('/ordersData/:orderId', async (req, res) => {
 router.get('/ordersComplete', async (req, res) => {
   try {
     const query = 'SELECT * FROM complete_orders ORDER BY timestamp DESC';
-    db.query(query, (err, result) => {
+    db.queryAsync(query, (err, result) => {
       if (err) {
         return res.status(500).json({ message: 'Error fetching completed orders' });
       }
@@ -194,7 +194,7 @@ router.delete('/deleteOrderComplete/:id', async (req, res) => {
   try {
     const deleteQuery = 'DELETE FROM complete_orders WHERE id = ?';
 
-    db.query(deleteQuery, [id], (err, result) => {
+    db.queryAsync(deleteQuery, [id], (err, result) => {
       if (err) {
         return res.status(500).json({ message: 'Failed to delete order' });
       }
@@ -264,7 +264,7 @@ router.post('/check', async (req, res) => {
 
   try {
     const query = 'SELECT * FROM orders WHERE order_id = ? OR video_link = ?';
-    db.query(query, [orderId, videoLink], (err, result) => {
+    db.queryAsync(query, [orderId, videoLink], (err, result) => {
       if (err) {
         return res.status(500).json({ message: 'Database error' });
       }

@@ -15,7 +15,7 @@ const db = require("../config/db"); // MySQL Connection
 router.post("/check-user", (req, res) => {
   const { username } = req.body;
 
-  db.query("SELECT * FROM user WHERE username = ?", [username], (err, results) => {
+  db.queryAsync("SELECT * FROM user WHERE username = ?", [username], (err, results) => {
     if (err) return res.status(500).json({ error: err.message });
 
     return res.json({ exists: results.length > 0 });
@@ -27,7 +27,7 @@ router.post("/add-user", (req, res) => {
   const { username } = req.body;
 
   // Check if username already exists
-  db.query("SELECT * FROM user WHERE username = ?", [username], (err, results) => {
+  db.queryAsync("SELECT * FROM user WHERE username = ?", [username], (err, results) => {
     if (err) return res.status(500).json({ error: err.message });
 
     if (results.length > 0) {
@@ -35,7 +35,7 @@ router.post("/add-user", (req, res) => {
     }
 
    // Add user to 'user' table
-db.query(
+db.queryAsync(
   "INSERT INTO user (username, num_views) VALUES (?, ?)", // Insert both username and num_views
   [username, 0], // Pass username and 0 as values
   (err, result) => {
@@ -50,7 +50,7 @@ db.query(
         )
       `;
 
-      db.query(createProfileTable, (err) => {
+      db.queryAsync(createProfileTable, (err) => {
         if (err) return res.status(500).json({ error: err.message });
 
         res.json({ success: true, message: "User added and profile table created." });
@@ -61,7 +61,7 @@ db.query(
 
 // 🛠 Get all users
 router.get("/get-users", (req, res) => {
-  db.query("SELECT username, num_views FROM user", (err, results) => {
+  db.queryAsync("SELECT username, num_views FROM user", (err, results) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(results);
   });
@@ -81,12 +81,12 @@ router.post("/delete-bulk", (req, res) => {
   const placeholders = usernames.map(() => "?").join(",");
   const deleteUsersQuery = `DELETE FROM user WHERE username IN (${placeholders})`;
 
-  db.query(deleteUsersQuery, usernames, (err, result) => {
+  db.queryAsync(deleteUsersQuery, usernames, (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
 
     let deleteProfileTables = usernames.map((username) => {
       return new Promise((resolve, reject) => {
-        db.query(`DROP TABLE IF EXISTS profile_${username}`, (err) => {
+        db.queryAsync(`DROP TABLE IF EXISTS profile_${username}`, (err) => {
           if (err) reject(err);
           else resolve();
         });
