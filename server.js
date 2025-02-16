@@ -18,7 +18,10 @@ app.use(bodyParser.json());
 
 // CORS configuration
 app.use(cors({
-  origin: 'https://yt-view-front.vercel.app', // Frontend URL allow karein
+  origin: [
+    'https://yt-view-front.vercel.app', // Allow main frontend URL
+    'https://yt-view-front-ssufhbfndks-projects.vercel.app' // Allow preview deployment URL
+  ],
   credentials: true // Cookies allow karein
 }));
 
