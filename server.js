@@ -16,14 +16,25 @@ const PORT = process.env.PORT || 5000;
 app.use(bodyParser.json());
 
 
-// CORS configuration
 app.use(cors({
   origin: [
-    'https://yt-view-front.vercel.app', // Allow main frontend URL
-    'https://yt-view-front-ssufhbfndks-projects.vercel.app' // Allow preview deployment URL
+    'https://yt-view-front.vercel.app',
+    'https://yt-view-front-ssufhbfndks-projects.vercel.app'
   ],
-  credentials: true // Cookies allow karein
+  credentials: true, // ✅ Ensure credentials are allowed
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 }));
+
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", req.headers.origin); // Dynamic CORS
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.header("Access-Control-Expose-Headers", "Set-Cookie"); // ✅ Set-Cookie allow karein
+  next();
+});
+
 
 // ✅ Other middlewares (place after CORS)
 app.use(express.json());
