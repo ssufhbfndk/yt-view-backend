@@ -21,17 +21,17 @@ app.use(cors({
     'https://yt-view-front.vercel.app',
     'https://yt-view-front-ssufhbfndks-projects.vercel.app'
   ],
-  credentials: true, // ✅ Ensure credentials are allowed
+  credentials: true, 
   methods: ["GET", "POST", "PUT", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
 
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", req.headers.origin); // Dynamic CORS
+  res.header("Access-Control-Allow-Origin", req.headers.origin);
   res.header("Access-Control-Allow-Credentials", "true");
   res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.header("Access-Control-Expose-Headers", "Set-Cookie"); // ✅ Set-Cookie allow karein
+  res.header("Access-Control-Expose-Headers", "Set-Cookie"); 
   next();
 });
 

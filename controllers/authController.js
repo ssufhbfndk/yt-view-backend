@@ -12,15 +12,11 @@ exports.login = async (req, res) => {
     const query = "SELECT * FROM adminuser WHERE username = ?";
     const results = await db.queryAsync(query, [username]);
 
-    if (!results || results.length === 0) {
+    if (!results || results.length === 0 || results[0].password !== password) {
       return res.status(401).json({ success: false, message: "Invalid username or password." });
     }
 
     const admin = results[0];
-
-    if (admin.password !== password) {
-      return res.status(401).json({ success: false, message: "Invalid username or password." });
-    }
 
     req.session.admin = { id: admin.id, username: admin.username };
 
@@ -29,14 +25,13 @@ exports.login = async (req, res) => {
         console.error("❌ Session Save Error:", err);
         return res.status(500).json({ success: false, message: "Session error." });
       }
-    
+
       console.log("✅ Session Saved:", req.session);
-    
-      res.setHeader("Access-Control-Expose-Headers", "Set-Cookie"); // 🛠️ Expose cookie header
-      res.setHeader("Set-Cookie", `user_sid=${req.sessionID}; Path=/; HttpOnly; Secure; SameSite=None`); // 🛠️ Manually setting
+
+      res.setHeader("Access-Control-Expose-Headers", "Set-Cookie");
+      res.setHeader("Set-Cookie", `user_sid=${req.sessionID}; Path=/; HttpOnly; Secure; SameSite=None`);
       res.json({ success: true, message: "Admin logged in.", admin: req.session.admin });
     });
-    
   } catch (err) {
     console.error("❌ Login Error:", err.message);
     res.status(500).json({ success: false, message: "Internal server error." });
@@ -62,8 +57,9 @@ exports.logout = async (req, res) => {
 
 // 🔹 Check Admin Session
 exports.checkAdminSession = (req, res) => {
-  console.log("🔍 Session Data:", req.session); // ✅ Debugging ke liye full session check karein
-  console.log("🔍 Admin Data:", req.session.admin);
+  console.log("🔍 Full Session Data:", req.session); // Debugging
+  console.log("🔍 Admin Data:", req.session.admin); 
+
   if (req.session.admin) {
     return res.json({ success: true, admin: req.session.admin });
   } else {
