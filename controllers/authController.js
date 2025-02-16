@@ -51,7 +51,7 @@ exports.logout = async (req, res) => {
 
 // 🔹 Check Admin Session
 exports.checkAdminSession = (req, res) => {
-  console.log(req.session.admin);
+  console.log(req.session);
   if (req.session.admin) {
     return res.json({ success: true, admin: req.session.admin });
   } else {
