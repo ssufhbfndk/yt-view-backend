@@ -29,14 +29,14 @@ exports.login = async (req, res) => {
         console.error("❌ Session Save Error:", err);
         return res.status(500).json({ success: false, message: "Session error." });
       }
-
+    
       console.log("✅ Session Saved:", req.session);
-
+    
       res.setHeader("Access-Control-Expose-Headers", "Set-Cookie"); // 🛠️ Expose cookie header
       res.setHeader("Set-Cookie", `user_sid=${req.sessionID}; Path=/; HttpOnly; Secure; SameSite=None`); // 🛠️ Manually setting
       res.json({ success: true, message: "Admin logged in.", admin: req.session.admin });
     });
-
+    
   } catch (err) {
     console.error("❌ Login Error:", err.message);
     res.status(500).json({ success: false, message: "Internal server error." });

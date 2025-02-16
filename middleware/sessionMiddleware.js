@@ -18,7 +18,7 @@ const sessionMiddleware = session({
   saveUninitialized: false,
   store: sessionStore,
   cookie: {
-    secure: process.env.NODE_ENV === 'production', // HTTPS in production
+    secure: false, // HTTPS in production
     httpOnly: true,
     sameSite: "none",
     maxAge: 24 * 60 * 60 * 1000, // 1 day session
