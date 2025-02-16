@@ -10,28 +10,39 @@ exports.login = async (req, res) => {
     }
 
     const query = "SELECT * FROM adminuser WHERE username = ?";
-    const results = await db.queryAsync(query, [username]);
+    const [results] = await db.execute(query, [username]); // ✅ Use `execute` for better handling
 
-    // ✅ Fix: Check if `results` exists and has data
+    // ✅ Fix: Ensure valid admin data
     if (!results || results.length === 0) {
       return res.status(401).json({ success: false, message: "Invalid username or password." });
     }
 
-    const admin = results[0]; // ✅ Now this is safe
+    const admin = results[0];
 
-    if (admin.password !== password) {
+    // ✅ Secure password check using bcrypt
+    const passwordMatch = await compare(password, admin.password);
+    if (!passwordMatch) {
       return res.status(401).json({ success: false, message: "Invalid username or password." });
     }
 
+    // ✅ Store minimal session data (avoid full DB row storage)
     req.session.admin = { id: admin.id, username: admin.username };
-    res.json({ success: true, message: "Admin logged in.", admin: req.session.admin });
+
+    // ✅ Ensure session is saved before sending response
+    req.session.save((err) => {
+      if (err) {
+        console.error("❌ Session Save Error:", err);
+        return res.status(500).json({ success: false, message: "Session error." });
+      }
+
+      return res.json({ success: true, message: "Admin logged in.", admin: req.session.admin });
+    });
 
   } catch (err) {
-    console.error("❌ Login Error:", err.message);
+    console.error("❌ Login Error:", err);
     res.status(500).json({ success: false, message: "Internal server error." });
   }
 };
-
 
 // 🔹 Logout Admin
 exports.logout = async (req, res) => {
