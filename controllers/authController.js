@@ -12,12 +12,11 @@ exports.login = async (req, res) => {
     const query = "SELECT * FROM adminuser WHERE username = ?";
     const results = await db.queryAsync(query, [username]);
 
-    // ✅ Fix: Check if results exists and has data
     if (!results || results.length === 0) {
       return res.status(401).json({ success: false, message: "Invalid username or password." });
     }
 
-    const admin = results[0]; // ✅ Now this is safe
+    const admin = results[0];
 
     if (admin.password !== password) {
       return res.status(401).json({ success: false, message: "Invalid username or password." });
@@ -25,12 +24,16 @@ exports.login = async (req, res) => {
 
     req.session.admin = { id: admin.id, username: admin.username };
 
-    // ✅ Ensure session is saved before sending response
+    console.log("🔍 Session Before Save:", req.session); // ✅ Debugging
+
     req.session.save((err) => {
       if (err) {
         console.error("❌ Session Save Error:", err);
         return res.status(500).json({ success: false, message: "Session error." });
       }
+
+      console.log("✅ Session After Save:", req.session); // ✅ Debugging
+
       res.json({ success: true, message: "Admin logged in.", admin: req.session.admin });
     });
 

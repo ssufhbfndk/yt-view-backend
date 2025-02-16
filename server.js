@@ -37,8 +37,9 @@ app.use((req, res, next) => {
 
 
 // ✅ Other middlewares (place after CORS)
-app.use(express.json());
 app.use(sessionMiddleware);
+app.use(express.json());
+
 
 
 
