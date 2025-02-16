@@ -57,12 +57,18 @@ exports.logout = async (req, res) => {
 
 // 🔹 Check Admin Session
 exports.checkAdminSession = (req, res) => {
-  console.log("🔍 Full Session Data:", req.session); // Debugging
-  console.log("🍪 Cookies:", req.cookies); // Check if cookies are received
-
-  if (req.session.admin) {
-    return res.json({ success: true, admin: req.session.admin });
-  } else {
-    return res.json({ success: false, message: "No active session." });
+  console.log("🔍 Full Session Data:", req.session);
+  
+  if (!req.session) {
+    console.log("❌ No session found!");
+    return res.status(401).json({ success: false, message: "Session not found." });
   }
+
+  if (!req.session.admin) {
+    console.log("❌ No admin found in session.");
+    return res.status(401).json({ success: false, message: "No active session." });
+  }
+
+  console.log("✅ Admin Session Exists:", req.session.admin);
+  res.json({ success: true, admin: req.session.admin });
 };
