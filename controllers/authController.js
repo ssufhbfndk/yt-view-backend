@@ -24,16 +24,15 @@ exports.login = async (req, res) => {
 
     req.session.admin = { id: admin.id, username: admin.username };
 
-    console.log("🔍 Session Before Save:", req.session); // ✅ Debugging
-
     req.session.save((err) => {
       if (err) {
         console.error("❌ Session Save Error:", err);
         return res.status(500).json({ success: false, message: "Session error." });
       }
 
-      console.log("✅ Session After Save:", req.session); // ✅ Debugging
+      console.log("✅ Session Saved:", req.session); // Debug
 
+      res.setHeader("Access-Control-Expose-Headers", "Set-Cookie"); // ✅ Allow browser to read cookies
       res.json({ success: true, message: "Admin logged in.", admin: req.session.admin });
     });
 
@@ -42,6 +41,7 @@ exports.login = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error." });
   }
 };
+
 
 // 🔹 Logout Admin
 exports.logout = async (req, res) => {
