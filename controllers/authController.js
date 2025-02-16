@@ -51,7 +51,8 @@ exports.logout = async (req, res) => {
 
 // 🔹 Check Admin Session
 exports.checkAdminSession = (req, res) => {
-  console.log(req.session.admin);
+  console.log("🔍 Session Data:", req.session); // ✅ Debugging ke liye full session check karein
+  console.log("🔍 Admin Data:", req.session.admin);
   if (req.session.admin) {
     return res.json({ success: true, admin: req.session.admin });
   } else {
