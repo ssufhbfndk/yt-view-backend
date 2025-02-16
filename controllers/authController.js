@@ -30,9 +30,10 @@ exports.login = async (req, res) => {
         return res.status(500).json({ success: false, message: "Session error." });
       }
 
-      console.log("✅ Session Saved:", req.session); // Debug
+      console.log("✅ Session Saved:", req.session);
 
-      res.setHeader("Access-Control-Expose-Headers", "Set-Cookie"); // ✅ Allow browser to read cookies
+      res.setHeader("Access-Control-Expose-Headers", "Set-Cookie"); // 🛠️ Expose cookie header
+      res.setHeader("Set-Cookie", `user_sid=${req.sessionID}; Path=/; HttpOnly; Secure; SameSite=None`); // 🛠️ Manually setting
       res.json({ success: true, message: "Admin logged in.", admin: req.session.admin });
     });
 
