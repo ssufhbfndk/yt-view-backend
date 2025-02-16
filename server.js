@@ -7,7 +7,7 @@ const userRoutes = require("./routes/userRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const sessionMiddleware = require("./middleware/sessionMiddleware"); // ✅ Correct import
-
+const cookieParser = require("cookie-parser"); // ✅ Import cookie-parser
 
 
 dotenv.config();
@@ -15,6 +15,8 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 app.use(bodyParser.json());
 
+// ✅ Use cookie-parser BEFORE any routes
+app.use(cookieParser());
 
 app.use(cors({
   origin: [
