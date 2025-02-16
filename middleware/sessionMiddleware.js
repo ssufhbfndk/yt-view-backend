@@ -12,7 +12,7 @@ const sessionStore = new MySQLStore(
 );
 
 const sessionMiddleware = session({
-  key: "session_id",
+  key: "user_sid",
   secret: process.env.SESSION_SECRET || "supersecretkey",
   resave: false,
   saveUninitialized: false,
