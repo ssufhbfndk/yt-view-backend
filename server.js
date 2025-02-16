@@ -16,33 +16,10 @@ const PORT = process.env.PORT || 5000;
 app.use(bodyParser.json());
 
 
-// ✅ Define allowed origins
-const allowedOrigins = [
-  "https://yt-view-front.vercel.app", // Frontend URL
-  "http://localhost:3000" // Local development
-];
-
-// ✅ CORS Middleware (Put this before all routes)
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.setHeader("Access-Control-Allow-Credentials", "true"); // ✅ Required for session cookies
-  }
-
-  if (req.method === "OPTIONS") {
-    return res.status(200).end(); // ✅ Preflight request handling
-  }
-
-  next();
-});
-
-// ✅ Use CORS package globally (Optional, but recommended)
+// CORS configuration
 app.use(cors({
-  origin: allowedOrigins,
-  credentials: true
+  origin: 'https://yt-view-front.vercel.app', // Frontend URL allow karein
+  credentials: true // Cookies allow karein
 }));
 
 // ✅ Other middlewares (place after CORS)

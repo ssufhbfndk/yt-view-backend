@@ -1,8 +1,6 @@
 const db = require("../config/db"); // ✅ Ensure correct database import
 
 exports.userClientLogin = (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", "https://yt-view-front.vercel.app");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
   const { username } = req.body;
 
   if (!username) {
