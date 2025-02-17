@@ -19,12 +19,14 @@ app.use(bodyParser.json());
 app.use(express.urlencoded({ extended: true })); // For form data
 // Middleware
 app.use(express.json());
-app.use(cors({ origin: "http://localhost:3000", credentials: true }));// Set up CORS options
 const corsOptions = {
-  origin: 'https://yt-view-front.vercel.app', // Allow this specific origin
-  methods: ['GET', 'POST', 'PUT', 'DELETE'], // Allowed methods
-  allowedHeaders: ['Content-Type', 'Authorization'], // Allowed headers
-  credentials: true, // Allow credentials (cookies, session data)
+  origin: [
+    'http://localhost:3000', // For local development
+    'https://yt-view-front.vercel.app', // For production
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true, // Allow cookies and session data
 };
 
 // Use CORS middleware
