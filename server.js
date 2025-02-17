@@ -16,10 +16,20 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 app.use(bodyParser.json());
-
+app.use(express.urlencoded({ extended: true })); // For form data
 // Middleware
 app.use(express.json());
-app.use(cors({ origin: "http://localhost:3000", credentials: true }));
+app.use(cors({ origin: "http://localhost:3000", credentials: true }));// Set up CORS options
+const corsOptions = {
+  origin: 'https://yt-view-front.vercel.app', // Allow this specific origin
+  methods: ['GET', 'POST', 'PUT', 'DELETE'], // Allowed methods
+  allowedHeaders: ['Content-Type', 'Authorization'], // Allowed headers
+  credentials: true, // Allow credentials (cookies, session data)
+};
+
+// Use CORS middleware
+app.use(cors(corsOptions));
+
 app.use(sessionMiddleware);
 
 // Test Route
@@ -31,8 +41,7 @@ app.use("/api/user", userRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/clientUser", clientUser)
-console.log("✅ Admin Routes Loaded");
-console.log("✅ Base Path: /api/admin");
+
 
 // Global Error Handler
 app.use((err, req, res, next) => {
