@@ -2,47 +2,36 @@ const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const bodyParser = require("body-parser");
+//const sessionMiddleware = require("./config/sessionConfig");
+//const authRoutes = require("./routes/authRoutes");
 const clientUser = require("./routes/clientUser")
 const userRoutes = require("./routes/userRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const adminRoutes = require("./routes/adminRoutes");
-const sessionMiddleware = require("./middleware/sessionMiddleware");
-const cookieParser = require("cookie-parser");
+const sessionMiddleware = require("./middleware/sessionMiddleware"); // ✅ Correct import
+
+
 
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
-
 app.use(bodyParser.json());
-app.use(cookieParser()); // 🔹 Ensure cookies can be parsed
 
-app.use(cors({
-  origin: [
-    "https://yt-view-front.vercel.app",
-    "https://yt-view-front-ssufhbfndks-projects.vercel.app"
-  ],
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-}));
-
-
-
-app.use(sessionMiddleware); // ✅ Ensuring session middleware comes before routes
+// Middleware
 app.use(express.json());
+app.use(cors({ origin: "http://localhost:3000", credentials: true }));
+app.use(sessionMiddleware);
 
-//for tesing
-
-
-
-
-
+// Test Route
+app.get("/", (req, res) => res.send("✅ Server is Running!"));
 
 // Routes
+//app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
-app.use("/api/clientUser", clientUser);
+app.use("/api/clientUser", clientUser)
+
 
 // Global Error Handler
 app.use((err, req, res, next) => {

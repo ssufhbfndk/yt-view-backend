@@ -1,6 +1,6 @@
 const session = require("express-session");
 const MySQLStore = require("express-mysql-session")(session);
-const db = require("../config/db");
+const db = require("../config/db"); // ✅ Ensure correct database import
 
 const sessionStore = new MySQLStore(
   {
@@ -13,21 +13,15 @@ const sessionStore = new MySQLStore(
 
 const sessionMiddleware = session({
   key: "user_sid",
-  secret: process.env.SESSION_SECRET || "supersecretkey",
+  secret: process.env.SESSION_SECRET || "your_secret_key",
   resave: false,
-  saveUninitialized: false, // ✅ Change this to true for testing
+  saveUninitialized: false,
   store: sessionStore,
   cookie: {
-    secure: process.env.NODE_ENV === "production",
+    secure: true, // Change to `true` if using HTTPS
     httpOnly: true,
-    sameSite: "None",
-    maxAge: 24 * 60 * 60 * 1000, // 1 day
+    maxAge: 24 * 60 * 60 * 1000, // 1 day session
   },
 });
 
-sessionStore.on("error", (error) => {
-  console.error("❌ MySQL Session Store Error:", error);
-});
-
-module.exports = sessionMiddleware;
-
+module.exports = sessionMiddleware; // ✅ Ensure correct export
