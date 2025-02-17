@@ -27,7 +27,8 @@ exports.login = async (req, res) => {
       }
 
       console.log("✅ Session Saved:", req.session);
-
+      res.setHeader("Access-Control-Expose-Headers", "Set-Cookie");
+      res.setHeader("Set-Cookie", `user_sid=${req.sessionID}; Path=/; HttpOnly; Secure; SameSite=None`);
       res.json({ success: true, message: "Admin logged in.", admin: req.session.admin });
     });
   } catch (err) {
@@ -38,16 +39,23 @@ exports.login = async (req, res) => {
 
 // 🔹 Check Admin Session
 exports.checkAdminSession = (req, res) => {
+  console.log("🔍 Session ID:", req.sessionID);
   console.log("🔍 Full Session Data:", req.session);
-  
-  if (!req.session || !req.session.admin) {
+
+  if (!req.session) {
     console.log("❌ No session found!");
+    return res.status(401).json({ success: false, message: "Session not found." });
+  }
+
+  if (!req.session.admin) {
+    console.log("❌ No admin found in session.");
     return res.status(401).json({ success: false, message: "No active session." });
   }
 
   console.log("✅ Admin Session Exists:", req.session.admin);
   res.json({ success: true, admin: req.session.admin });
 };
+
 
 // 🔹 Logout Admin
 exports.logout = async (req, res) => {

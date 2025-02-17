@@ -15,14 +15,19 @@ const sessionMiddleware = session({
   key: "user_sid",
   secret: process.env.SESSION_SECRET || "supersecretkey",
   resave: false,
-  saveUninitialized: true, // 🔹 Ensure session saves even if empty
+  saveUninitialized: false, // ✅ Change this to true for testing
   store: sessionStore,
   cookie: {
-    secure: process.env.NODE_ENV === "production" ? true : false, // 🔹 Secure only in production
+    secure: process.env.NODE_ENV === "production",
     httpOnly: true,
-    sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax", // 🔹 Lax for local, None for prod
+    sameSite: "None",
     maxAge: 24 * 60 * 60 * 1000, // 1 day
   },
 });
 
+sessionStore.on("error", (error) => {
+  console.error("❌ MySQL Session Store Error:", error);
+});
+
 module.exports = sessionMiddleware;
+
