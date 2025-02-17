@@ -5,7 +5,7 @@ const db = require("../config/db");
 const sessionStore = new MySQLStore(
   {
     clearExpired: true,
-    checkExpirationInterval: 900000, // 15 min
+    checkExpirationInterval: 600000, // 10 min
     expiration: 86400000, // 24 hours
   },
   db
@@ -15,13 +15,13 @@ const sessionMiddleware = session({
   key: "user_sid",
   secret: process.env.SESSION_SECRET || "supersecretkey",
   resave: false,
-  saveUninitialized: true,
+  saveUninitialized: false, // ✅ Only save session after login
   store: sessionStore,
   cookie: {
-    secure: process.env.NODE_ENV === "production", // HTTPS only in production
+    secure: process.env.NODE_ENV === "production", // ✅ Only secure in production
     httpOnly: true,
-    sameSite: "lax",
-    maxAge: 24 * 60 * 60 * 1000, // 1 day session
+    sameSite: "None", // ✅ Fix cross-origin issues
+    maxAge: 24 * 60 * 60 * 1000, // 1 day
   },
 });
 
