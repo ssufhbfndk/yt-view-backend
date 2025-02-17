@@ -33,16 +33,6 @@ app.use(express.json());
 
 //for tesing
 
-app.get("/test-session", (req, res) => {
-  req.session.admin = { id: 1, username: "admin_test" };
-  req.session.save(() => {
-    res.json({ success: true, session: req.session });
-  });
-});
-
-app.get("/check-session", (req, res) => {
-  res.json({ success: true, session: req.session });
-});
 
 
 
