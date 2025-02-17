@@ -31,7 +31,8 @@ app.use("/api/user", userRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/clientUser", clientUser)
-
+console.log("✅ Admin Routes Loaded");
+console.log("✅ Base Path: /api/admin");
 
 // Global Error Handler
 app.use((err, req, res, next) => {
