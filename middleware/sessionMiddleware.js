@@ -15,7 +15,7 @@ const sessionMiddleware = session({
   key: "user_sid",
   secret: process.env.SESSION_SECRET || "supersecretkey",
   resave: false,
-  saveUninitialized: false,
+  saveUninitialized: true,
   store: sessionStore,
   cookie: {
     secure: process.env.NODE_ENV === "production", // HTTPS only in production
