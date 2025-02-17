@@ -26,24 +26,27 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
 
-// ✅ Fixing CORS Headers Issue
-app.use((req, res, next) => {
-  const allowedOrigins = [
-    "https://yt-view-front.vercel.app",
-    "https://yt-view-front-ssufhbfndks-projects.vercel.app"
-  ];
-  const origin = allowedOrigins.includes(req.headers.origin) ? req.headers.origin : allowedOrigins[0];
-  res.header("Access-Control-Allow-Origin", origin);
-  res.header("Access-Control-Allow-Credentials", "true");
-  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.header("Access-Control-Expose-Headers", "Set-Cookie"); 
-  next();
-});
 
 
 app.use(sessionMiddleware); // ✅ Ensuring session middleware comes before routes
 app.use(express.json());
+
+//for tesing
+
+app.get("/test-session", (req, res) => {
+  req.session.admin = { id: 1, username: "admin_test" };
+  req.session.save(() => {
+    res.json({ success: true, session: req.session });
+  });
+});
+
+app.get("/check-session", (req, res) => {
+  res.json({ success: true, session: req.session });
+});
+
+
+
+
 
 // Routes
 app.use("/api/user", userRoutes);
