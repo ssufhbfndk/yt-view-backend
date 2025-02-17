@@ -17,19 +17,26 @@ exports.login = async (req, res) => {
     }
 
     const admin = results[0];
-
-    req.session.admin = { id: admin.id, username: admin.username };
-
-    req.session.save((err) => {
+    
+    // Manually set session
+    req.session.regenerate((err) => {
       if (err) {
-        console.error("❌ Session Save Error:", err);
+        console.error("❌ Session Regenerate Error:", err);
         return res.status(500).json({ success: false, message: "Session error." });
       }
 
-      console.log("✅ Session Saved:", req.session);
-      res.setHeader("Access-Control-Expose-Headers", "Set-Cookie");
-      res.setHeader("Set-Cookie", `user_sid=${req.sessionID}; Path=/; HttpOnly; Secure; SameSite=None`);
-      res.json({ success: true, message: "Admin logged in.", admin: req.session.admin });
+      req.session.admin = { id: admin.id, username: admin.username };
+      req.session.save((err) => {
+        if (err) {
+          console.error("❌ Session Save Error:", err);
+          return res.status(500).json({ success: false, message: "Session error." });
+        }
+
+        console.log("✅ Session Saved:", req.session);
+        res.setHeader("Access-Control-Expose-Headers", "Set-Cookie");
+        res.setHeader("Set-Cookie", `user_sid=${req.sessionID}; Path=/; HttpOnly; Secure; SameSite=None`);
+        res.json({ success: true, message: "Admin logged in.", admin: req.session.admin });
+      });
     });
   } catch (err) {
     console.error("❌ Login Error:", err.message);
@@ -42,20 +49,14 @@ exports.checkAdminSession = (req, res) => {
   console.log("🔍 Session ID:", req.sessionID);
   console.log("🔍 Full Session Data:", req.session);
 
-  if (!req.session) {
-    console.log("❌ No session found!");
-    return res.status(401).json({ success: false, message: "Session not found." });
-  }
-
-  if (!req.session.admin) {
-    console.log("❌ No admin found in session.");
+  if (!req.session || !req.session.admin) {
+    console.log("❌ No active admin session.");
     return res.status(401).json({ success: false, message: "No active session." });
   }
 
   console.log("✅ Admin Session Exists:", req.session.admin);
   res.json({ success: true, admin: req.session.admin });
 };
-
 
 // 🔹 Logout Admin
 exports.logout = async (req, res) => {
@@ -65,6 +66,7 @@ exports.logout = async (req, res) => {
         console.error("❌ Logout Error:", err.message);
         return res.status(500).json({ success: false, message: "Logout failed" });
       }
+      res.setHeader("Set-Cookie", "user_sid=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0");
       res.json({ success: true, message: "Logged out successfully" });
     });
   } catch (err) {
