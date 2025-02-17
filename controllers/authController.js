@@ -43,7 +43,9 @@ exports.logout = (req, res) => {
 
 // 🔹 Check Session
 exports.checkAdminSession = (req, res) => {
-  
+      console.log(req.session);
+      console.log(req.session_id);
+      console.log(req.session.admin);
   if (req.session.admin) {
     return res.json({ success: true, admin: req.session.admin });
   } else {
