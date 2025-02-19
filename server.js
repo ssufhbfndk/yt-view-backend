@@ -19,17 +19,17 @@ app.use(bodyParser.json());
 app.use(express.urlencoded({ extended: true })); // For form data
 // Middleware
 app.use(express.json());
+
 const corsOptions = {
   origin: [
-    'http://localhost:3000', // For local development
-    'https://yt-view-front.vercel.app', // For production
+    "http://localhost:3000", // Local development
+    "https://yt-view-front.vercel.app", // Production
   ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true, // Allow cookies and session data
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true, // ✅ Must be true to send cookies
 };
 
-// Use CORS middleware
 app.use(cors(corsOptions));
 
 app.use(sessionMiddleware);
@@ -43,6 +43,13 @@ app.use("/api/user", userRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/clientUser", clientUser)
+
+app.use((req, res, next) => {
+  console.log("🔍 Incoming Request:", req.method, req.url);
+  console.log("🔍 Cookies:", req.cookies);
+  console.log("🔍 Session:", req.session);
+  next();
+});
 
 
 // Global Error Handler

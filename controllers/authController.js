@@ -25,6 +25,10 @@ console.log(req.body);
       return res.status(401).json({ success: false, message: "Invalid username or password." });
     }
 
+    // Log the session ID when the session is created
+  console.log("Session ID after login:", req.sessionID);
+  console.log("Session data:", req.session);
+
     req.session.admin = { id: admin.id, username: admin.username };
     res.json({ success: true, message: "Admin logged in.", admin: req.session.admin });
   });
