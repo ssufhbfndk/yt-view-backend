@@ -20,6 +20,7 @@ const sessionMiddleware = session({
   cookie: {
     secure: process.env.NODE_ENV === "production" ? true : false, // Change to `true` if using HTTPS
     httpOnly: true,
+    sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax", // ✅ Allow cross-origin cookies in production
     maxAge: 24 * 60 * 60 * 1000, // 1 day session
   },
 });
