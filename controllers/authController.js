@@ -2,7 +2,8 @@ const db = require("../config/db"); // ✅ Ensure correct database import
 
 exports.login = (req, res) => {
   const { username, password } = req.body;
-console.log(req.body);
+  console.log(req.body);
+
   if (!username || !password) {
     return res.status(400).json({ success: false, message: "Username and password are required." });
   }
@@ -25,14 +26,23 @@ console.log(req.body);
       return res.status(401).json({ success: false, message: "Invalid username or password." });
     }
 
-    // Log the session ID when the session is created
-  console.log("Session ID after login:", req.sessionID);
-  console.log("Session data:", req.session);
-
+    // ✅ Store session data
     req.session.admin = { id: admin.id, username: admin.username };
+
+    // ✅ Manually set session cookie
+    res.cookie("user_sid", req.sessionID, {
+      httpOnly: true,
+      secure: true, // HTTPS required
+      sameSite: "None",
+    });
+
+    console.log("Session ID after login:", req.sessionID);
+    console.log("Session data:", req.session);
+
     res.json({ success: true, message: "Admin logged in.", admin: req.session.admin });
   });
 };
+
 
 // 🔹 Logout User
 exports.logout = (req, res) => {
