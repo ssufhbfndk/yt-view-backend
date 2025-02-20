@@ -76,14 +76,15 @@ router.post('/process', async (req, res) => {
   const { data } = req.body;
 
   try {
-    // Step 1: Split the array into chunks of 3
     const chunkSize = 3;
     const chunks = [];
     for (let i = 0; i < data.length; i += chunkSize) {
       chunks.push(data.slice(i, i + chunkSize));
     }
 
-    // Step 2: Process each chunk asynchronously
+    let successCount = 0;
+    let errorCount = 0;
+
     for (const chunk of chunks) {
       const [orderId, videoLink, quantity] = chunk;
 
@@ -91,7 +92,7 @@ router.post('/process', async (req, res) => {
       const additional = Math.ceil(originalQuantity * 0.15);
       const remaining = originalQuantity + additional;
 
-      // Step 3: Check if orderId or videoLink exists
+      // Check if orderId or videoLink exists
       const checkQuery = 'SELECT * FROM orders WHERE order_id = ? OR video_link = ?';
       const existingOrders = await db.queryAsync(checkQuery, [orderId, videoLink]);
 
@@ -100,20 +101,23 @@ router.post('/process', async (req, res) => {
         const errorQuery =
           'INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())';
         await db.queryAsync(errorQuery, [orderId, videoLink, originalQuantity, remaining]);
+        errorCount++;
       } else {
         // If not exists, insert into orders table
         const orderQuery =
           'INSERT INTO orders (order_id, video_link, quantity, remaining) VALUES (?, ?, ?, ?)';
         await db.queryAsync(orderQuery, [orderId, videoLink, originalQuantity, remaining]);
+        successCount++;
       }
     }
 
-    res.json({ success: true });
+    res.json({ success: true, inserted: successCount, errors: errorCount });
   } catch (err) {
     console.error("Error processing orders:", err);
     res.status(500).json({ message: 'Server error' });
   }
 });
+
 
 
 // Get orders from both 'orders' and 'temp_orders' tables
