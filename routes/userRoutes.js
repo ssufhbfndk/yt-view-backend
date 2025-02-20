@@ -169,30 +169,45 @@ router.post("/increment-views", async (req, res) => {
   }
 
   try {
-    // Increment num_views for the given user
-    const [updateResult] = await db.queryAsync(
-      "UPDATE user SET num_views = num_views + 1 WHERE username = ?",
+    const connection = await db.getConnection(); // ✅ Get connection for transaction
+
+    await new Promise((resolve, reject) => connection.beginTransaction((err) => (err ? reject(err) : resolve())));
+
+    // ✅ Step 1: Increment `num_views` for the given user
+    const updateResult = await db.queryAsync(
+      "UPDATE users SET num_views = num_views + 1 WHERE username = ?",
       [username]
     );
 
     if (updateResult.affectedRows === 0) {
+      connection.release();
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // Fetch the updated num_views value
-    const [users] = await db.queryAsync(
-      "SELECT num_views FROM user WHERE username = ?", 
+    // ✅ Step 2: Fetch the updated `num_views` value
+    const users = await db.queryAsync(
+      "SELECT num_views FROM users WHERE username = ?",
       [username]
     );
 
     if (users.length === 0) {
+      connection.release();
       return res.status(404).json({ success: false, message: "User not found after update" });
     }
 
+    await new Promise((resolve, reject) => connection.commit((err) => (err ? reject(err) : resolve()))); // ✅ Commit transaction
+    connection.release(); // ✅ Release connection
+
     res.json({ success: true, num_views: users[0].num_views });
 
-  } catch (err) {
-    console.error("❌ Error incrementing num_views:", err);
+  } catch (error) {
+    console.error("❌ Error incrementing num_views:", error);
+
+    if (error.connection) {
+      await new Promise((resolve) => error.connection.rollback(() => resolve())); // ✅ Rollback on error
+      error.connection.release(); // ✅ Release connection
+    }
+
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
