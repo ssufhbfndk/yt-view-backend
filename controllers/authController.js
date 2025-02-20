@@ -1,8 +1,11 @@
-const db = require("../config/db"); // ✅ Ensure correct database import
+const db = require("../config/db");
+const jwt = require("jsonwebtoken");
 
+const SECRET_KEY = process.env.JWT_SECRET || "supersecretkey";
+
+// 🔹 Admin Login (JWT Based)
 exports.login = (req, res) => {
   const { username, password } = req.body;
-  console.log(req.body);
 
   if (!username || !password) {
     return res.status(400).json({ success: false, message: "Username and password are required." });
@@ -16,67 +19,46 @@ exports.login = (req, res) => {
       return res.status(500).json({ success: false, message: "Database error." });
     }
 
-    if (results.length === 0) {
+    if (results.length === 0 || results[0].password !== password) {
       return res.status(401).json({ success: false, message: "Invalid username or password." });
     }
 
     const admin = results[0];
 
-    if (admin.password !== password) {
-      return res.status(401).json({ success: false, message: "Invalid username or password." });
-    }
+    // ✅ Generate JWT Token
+    const token = jwt.sign({ id: admin.id, username: admin.username }, SECRET_KEY, { expiresIn: "24h" });
 
-    // ✅ Store session data
-    req.session.admin = { id: admin.id, username: admin.username };
-
-    req.session.save((err) => {
-      if (err) {
-        console.error("Session save error:", err);
-        return res.status(500).json({ success: false, message: "Session error." });
-      }
-
-      // ✅ Manually set session cookie
-      res.cookie("user_sid", req.sessionID, {
-        httpOnly: true,
-        secure: true, // Ensure HTTPS is being used
-        sameSite: "None",
-      });
-
-      console.log("Session ID after login:", req.sessionID);
-      console.log("Session data:", req.session);
-
-      res.json({ success: true, message: "Admin logged in.", admin: req.session.admin });
+    // ✅ Send Token in HTTP-Only Cookie
+    res.cookie("admin_token", token, {
+      httpOnly: true,
+      secure: true, // Requires HTTPS
+      sameSite: "None",
+      maxAge: 24 * 60 * 60 * 1000, // 1 day expiration
     });
+
+    res.json({ success: true, message: "Admin logged in.", admin: { id: admin.id, username: admin.username } });
   });
 };
 
-
-// 🔹 Logout User
+// 🔹 Admin Logout (Clears Cookie)
 exports.logout = (req, res) => {
-  req.session.destroy((err) => {
-    if (err) {
-      console.error("❌ Logout Error:", err.message);
-      return res.status(500).json({ success: false, message: "Logout failed" });
-    }
-    res.json({ success: true, message: "Logged out successfully" });
-  });
+  res.clearCookie("admin_token", { httpOnly: true, secure: true, sameSite: "None" });
+  res.json({ success: true, message: "Logged out successfully" });
 };
 
-// 🔹 Check Session
+// 🔹 Check Admin Session (JWT Validation)
+exports.checkAdminSession = (req, res) => {
+  const token = req.cookies.admin_token;
 
-  exports.checkAdminSession = (req, res) => {
-    console.log("Incoming Session ID:", req.sessionID);
-  console.log("Cookies Received:", req.headers.cookie);
-  console.log("Session Data:", req.session);
-  console.log("Admin Data:", req.session.admin);
-    if (req.session && req.session.admin) {
-      // If session exists and admin data is available, return success response
-      console.log("Active session found:", req.session.admin);
-      return res.json({ success: true, admin: req.session.admin });
-    } else {
-      // If no session is found, return error message
-      console.log("No active session found.");
-      return res.json({ success: false, message: "No active session." });
+  if (!token) {
+    return res.status(401).json({ success: false, message: "No active session." });
+  }
+
+  jwt.verify(token, SECRET_KEY, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({ success: false, message: "Invalid session." });
     }
-  };
-  
+
+    res.json({ success: true, admin: decoded });
+  });
+};

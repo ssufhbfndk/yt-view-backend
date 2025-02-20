@@ -2,21 +2,22 @@ const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const bodyParser = require("body-parser");
-const clientUser = require("./routes/clientUser")
+const cookieParser = require("cookie-parser");
+
 const userRoutes = require("./routes/userRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const adminRoutes = require("./routes/adminRoutes");
-const sessionMiddleware = require("./middleware/sessionMiddleware"); // ✅ Correct import
-const cookieParser = require("cookie-parser");
-
+const clientUserRoutes = require("./routes/clientUser");
 
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
-app.use(bodyParser.json());
-app.use(express.urlencoded({ extended: true })); // For form data
+
 // Middleware
+app.use(bodyParser.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+app.use(cookieParser()); // ✅ For parsing cookies
 
 const corsOptions = {
   origin: [
@@ -30,28 +31,14 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-app.use(sessionMiddleware);
-
 // Test Route
 app.get("/", (req, res) => res.send("✅ Server is Running!"));
 
-
-app.use(cookieParser());
-
 // Routes
-//app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
-app.use("/api/clientUser", clientUser)
-
-app.use((req, res, next) => {
-  console.log("🔍 Incoming Request:", req.method, req.url);
-  console.log("🔍 Cookies:", req.cookies);
-  console.log("🔍 Session:", req.session);
-  next();
-});
-
+app.use("/api/clientUser", clientUserRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {
