@@ -14,7 +14,7 @@ const pool = mysql.createPool({
   queueLimit: 0,
 });
 
-// ✅ Function for callback-based queries (same as before)
+// ✅ Function for callback-based queries
 const db = {
   query: (sql, params, callback) => {
     pool.getConnection((err, connection) => {
@@ -30,7 +30,7 @@ const db = {
     });
   },
 
-  // ✅ Function for promise-based queries (same as before)
+  // ✅ Function for promise-based queries
   queryAsync: (sql, params = []) => {
     return new Promise((resolve, reject) => {
       pool.getConnection((err, connection) => {
@@ -44,6 +44,19 @@ const db = {
           if (queryErr) reject(queryErr);
           else resolve(results);
         });
+      });
+    });
+  },
+
+  // ✅ Function to get a database connection (for transactions)
+  getConnection: () => {
+    return new Promise((resolve, reject) => {
+      pool.getConnection((err, connection) => {
+        if (err) {
+          console.error("❌ Database Connection Error:", err.message);
+          return reject(err);
+        }
+        resolve(connection);
       });
     });
   },
