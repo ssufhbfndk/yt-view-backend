@@ -175,7 +175,7 @@ router.post("/increment-views", async (req, res) => {
 
     // ✅ Step 1: Increment `num_views` for the given user
     const updateResult = await db.queryAsync(
-      "UPDATE users SET num_views = num_views + 1 WHERE username = ?",
+      "UPDATE user SET num_views = num_views + 1 WHERE username = ?",
       [username]
     );
 
@@ -186,7 +186,7 @@ router.post("/increment-views", async (req, res) => {
 
     // ✅ Step 2: Fetch the updated `num_views` value
     const users = await db.queryAsync(
-      "SELECT num_views FROM users WHERE username = ?",
+      "SELECT num_views FROM user WHERE username = ?",
       [username]
     );
 
