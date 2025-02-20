@@ -83,46 +83,34 @@ router.post('/process', async (req, res) => {
       chunks.push(data.slice(i, i + chunkSize));
     }
 
-    // Step 2: Process each chunk
+    // Step 2: Process each chunk asynchronously
     for (const chunk of chunks) {
       const [orderId, videoLink, quantity] = chunk;
 
-      // Calculate remaining quantity (15% extra)
       const originalQuantity = parseInt(quantity);
       const additional = Math.ceil(originalQuantity * 0.15);
       const remaining = originalQuantity + additional;
 
-      // Step 3: Check if orderId or videoLink exists in the database
+      // Step 3: Check if orderId or videoLink exists
       const checkQuery = 'SELECT * FROM orders WHERE order_id = ? OR video_link = ?';
-      db.queryAsync(checkQuery, [orderId, videoLink], (err, results) => {
-        if (err) {
-          return res.status(500).json({ message: 'Database error' });
-        }
+      const existingOrders = await db.queryAsync(checkQuery, [orderId, videoLink]);
 
-        if (results.length > 0) {
-          // If exists, insert into error table
-          const errorQuery =
-            'INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())';
-          db.queryAsync(errorQuery, [orderId, videoLink, originalQuantity, remaining], (err) => {
-            if (err) {
-              return res.status(500).json({ message: 'Failed to insert into error table' });
-            }
-          });
-        } else {
-          // If not exists, insert into orders table
-          const orderQuery =
-            'INSERT INTO orders (order_id, video_link, quantity, remaining) VALUES (?, ?, ?, ?)';
-          db.queryAsync(orderQuery, [orderId, videoLink, originalQuantity, remaining], (err) => {
-            if (err) {
-              return res.status(500).json({ message: 'Failed to insert into orders table' });
-            }
-          });
-        }
-      });
+      if (existingOrders.length > 0) {
+        // If exists, insert into error table
+        const errorQuery =
+          'INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())';
+        await db.queryAsync(errorQuery, [orderId, videoLink, originalQuantity, remaining]);
+      } else {
+        // If not exists, insert into orders table
+        const orderQuery =
+          'INSERT INTO orders (order_id, video_link, quantity, remaining) VALUES (?, ?, ?, ?)';
+        await db.queryAsync(orderQuery, [orderId, videoLink, originalQuantity, remaining]);
+      }
     }
 
     res.json({ success: true });
   } catch (err) {
+    console.error("Error processing orders:", err);
     res.status(500).json({ message: 'Server error' });
   }
 });
