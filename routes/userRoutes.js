@@ -164,29 +164,38 @@ router.get("/num-views/:username", async (req, res) => {
 router.post("/increment-views", async (req, res) => {
   const { username } = req.body;
 
+  if (!username) {
+    return res.status(400).json({ success: false, message: "Username is required" });
+  }
+
   try {
-    // Use promise-based query to increment num_views
-    const updateResult = await db.queryAsync(
+    // Increment num_views for the given user
+    const [updateResult] = await db.queryAsync(
       "UPDATE user SET num_views = num_views + 1 WHERE username = ?",
       [username]
     );
 
-    // Check if the update was successful
-    if (updateResult.affectedRows > 0) {
-      // Fetch the updated num_views value
-      const [user] = await db.queryAsync("SELECT num_views FROM user WHERE username = ?", [username]);
-
-      if (user) {
-        res.json({ success: true, num_views: user.num_views });
-      } else {
-        res.status(404).json({ success: false, message: "User not found after update" });
-      }
-    } else {
-      res.status(404).json({ success: false, message: "User not found" });
+    if (updateResult.affectedRows === 0) {
+      return res.status(404).json({ success: false, message: "User not found" });
     }
+
+    // Fetch the updated num_views value
+    const [users] = await db.queryAsync(
+      "SELECT num_views FROM user WHERE username = ?", 
+      [username]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ success: false, message: "User not found after update" });
+    }
+
+    res.json({ success: true, num_views: users[0].num_views });
+
   } catch (err) {
     console.error("❌ Error incrementing num_views:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
+
+
 module.exports = router;

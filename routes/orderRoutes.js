@@ -5,70 +5,79 @@ const db = require('../config/db');  // Assuming db.js is where your MySQL conne
 // Fetch orders and compare with user's profile table
 router.get('/fetch-order/:username', async (req, res) => {
   const { username } = req.params;
-  try {
-    const profileTable = "profile_" + username; // Assuming username-based profile tables
 
-    // Step 1: Get orders that are not yet in the profile table
-    const orders = await db.queryAsync(`
-      SELECT * FROM orders 
-      WHERE order_id NOT IN (SELECT order_id FROM ${profileTable})
+  if (!username.match(/^[a-zA-Z0-9_]+$/)) {
+    return res.status(400).json({ success: false, message: "Invalid username" });
+  }
+
+  const profileTable = `profile_${username}`;
+
+  const connection = await db.getConnection(); // Get a connection for transactions
+
+  try {
+    await connection.beginTransaction(); // Start transaction
+
+    // Step 1: Get a random order that is not in the user's profile table
+    const [orders] = await connection.query(`
+      SELECT o.* FROM orders o 
+      LEFT JOIN ${profileTable} p ON o.order_id = p.order_id 
+      WHERE p.order_id IS NULL 
+      ORDER BY RAND() 
+      LIMIT 1
     `);
 
     if (orders.length === 0) {
+      await connection.release();
       return res.status(200).json({ success: false, message: "No new orders found" });
     }
 
-    // Step 2: Pick a random order
-    const randomOrder = orders[Math.floor(Math.random() * orders.length)];
+    const randomOrder = orders[0];
 
-    // Step 3: Check remaining quantity
     if (randomOrder.remaining <= 1) {
-      // Move to complete_orders if remaining is 0
-      await db.queryAsync(`
+      // Move order to `complete_orders`
+      await connection.query(`
         INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) 
         VALUES (?, ?, ?, NOW())`, 
         [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity]
       );
 
-      // Delete from orders since it's completed
-      await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
-
+      // Delete from orders
+      await connection.query(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
     } else {
-      // Delete from orders 
-     
-      await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
-
-//insert into temp_orders
-      await db.queryAsync(`
+      // Move to `temp_orders` with updated remaining count
+      await connection.query(`
         INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp) 
         VALUES (?, ?, ?, ?, NOW())`, 
         [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity, randomOrder.remaining - 1]
       );
 
-      
+      // Delete from orders
+      await connection.query(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
     }
 
     // Step 4: Insert order into the user's profile table
-    await db.queryAsync(`
+    await connection.query(`
       INSERT INTO ${profileTable} (order_id, timestamp) 
       VALUES (?, NOW())`, 
       [randomOrder.order_id]
     );
 
+    await connection.commit(); // Commit transaction
+    await connection.release();
 
-    // Step 6: Respond with the selected order details
     res.status(200).json({
       success: true,
       order: randomOrder,
     });
 
   } catch (error) {
+    await connection.rollback(); // Rollback if any error occurs
+    await connection.release();
     console.error("❌ Error processing order:", error);
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
-
-
 });
+
 
 
 // Process data from frontend
