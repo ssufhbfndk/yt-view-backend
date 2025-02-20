@@ -58,10 +58,10 @@ exports.logout = (req, res) => {
 // 🔹 Check Session
 
   exports.checkAdminSession = (req, res) => {
-    // Log the entire session data for debugging purposes
-    console.log("Session Data:", req.session);  // Log the whole session
-    console.log("Admin Data:", req.session.admin);  // Log the admin-specific session data
-    console.log("Session ID:", req.sessionID);  // Log the session ID
+    console.log("Incoming Session ID:", req.sessionID);
+  console.log("Cookies Received:", req.headers.cookie);
+  console.log("Session Data:", req.session);
+  console.log("Admin Data:", req.session.admin);
     if (req.session && req.session.admin) {
       // If session exists and admin data is available, return success response
       console.log("Active session found:", req.session.admin);

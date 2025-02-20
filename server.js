@@ -2,14 +2,12 @@ const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const bodyParser = require("body-parser");
-//const sessionMiddleware = require("./config/sessionConfig");
-//const authRoutes = require("./routes/authRoutes");
 const clientUser = require("./routes/clientUser")
 const userRoutes = require("./routes/userRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const sessionMiddleware = require("./middleware/sessionMiddleware"); // ✅ Correct import
-
+const cookieParser = require("cookie-parser");
 
 
 dotenv.config();
@@ -36,6 +34,9 @@ app.use(sessionMiddleware);
 
 // Test Route
 app.get("/", (req, res) => res.send("✅ Server is Running!"));
+
+
+app.use(cookieParser());
 
 // Routes
 //app.use("/api/auth", authRoutes);
