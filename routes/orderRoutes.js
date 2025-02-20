@@ -147,15 +147,19 @@ router.delete('/ordersData/:orderId', async (req, res) => {
   try {
     // Check both tables for the order
     const [orderResult] = await db.queryAsync(
-      'SELECT "orders" AS tableName FROM orders WHERE order_id = ? UNION SELECT "temp_orders" FROM temp_orders WHERE order_id = ?',
+      'SELECT "orders" AS tableName FROM orders WHERE order_id = ? UNION SELECT "temp_orders" AS tableName FROM temp_orders WHERE order_id = ?',
       [orderId, orderId]
     );
 
-    if (orderResult.length === 0) {
+    // Ensure orderResult is valid and not empty
+    if (!orderResult || orderResult.length === 0) {
       return res.status(404).json({ message: 'Order not found in either table' });
     }
 
-    const tableToDelete = orderResult[0].tableName;
+    const tableToDelete = orderResult.tableName; // Use orderResult[0] directly
+    if (!tableToDelete) {
+      return res.status(500).json({ message: 'Table name could not be determined' });
+    }
 
     // Delete from the found table
     await db.queryAsync(`DELETE FROM ${tableToDelete} WHERE order_id = ?`, [orderId]);
