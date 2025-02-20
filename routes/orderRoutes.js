@@ -143,7 +143,7 @@ router.get('/ordersData', async (req, res) => {
 // Delete order from 'orders' or 'temp_orders' table
 router.delete('/ordersData/:orderId', async (req, res) => {
   const { orderId } = req.params;
-  const { table } = req.body; // The table to delete from ('orders' or 'temp_orders')
+  const { table } = req.query; // Using query params instead of body
 
   if (!table || (table !== 'orders' && table !== 'temp_orders')) {
     return res.status(400).json({ message: 'Invalid table specified' });
@@ -151,17 +151,19 @@ router.delete('/ordersData/:orderId', async (req, res) => {
 
   try {
     const deleteQuery = `DELETE FROM ${table} WHERE order_id = ?`;
+    const result = await db.queryAsync(deleteQuery, [orderId]);
 
-    db.queryAsync(deleteQuery, [orderId], (err, result) => {
-      if (err) {
-        return res.status(500).json({ message: 'Failed to delete order' });
-      }
-      res.json({ success: true });
-    });
+    if (result.affectedRows > 0) {
+      res.json({ success: true, message: 'Order deleted successfully' });
+    } else {
+      res.status(404).json({ message: 'Order not found' });
+    }
   } catch (err) {
-    return res.status(500).json({ message: 'Server error' });
+    console.error("Error deleting order:", err);
+    res.status(500).json({ message: 'Server error' });
   }
 });
+
 
 // Get orders from 'complete_orders' table
 router.get('/ordersComplete', async (req, res) => {
@@ -185,58 +187,68 @@ router.delete('/deleteOrderComplete/:id', async (req, res) => {
 
   try {
     const deleteQuery = 'DELETE FROM complete_orders WHERE id = ?';
+    const result = await db.queryAsync(deleteQuery, [id]); // Correct usage of async/await
 
-    db.queryAsync(deleteQuery, [id], (err, result) => {
-      if (err) {
-        return res.status(500).json({ message: 'Failed to delete order' });
-      }
-      if (result.affectedRows === 0) {
-        return res.status(404).json({ message: 'Order not found' });
-      }
-      res.json({ success: true });
-    });
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    res.json({ success: true, message: 'Order deleted successfully' });
   } catch (err) {
-    return res.status(500).json({ message: 'Server error' });
+    console.error("Error deleting order:", err);
+    res.status(500).json({ message: 'Server error' });
   }
 });
-
 
 ///////////////////////////////////////////////////////////////
 
 
 // Process orders every 1 minute
+let isProcessing = false; // Flag to prevent overlapping executions
+
 setInterval(async () => {
+  if (isProcessing) return; // Prevent concurrent execution
+  isProcessing = true;
+
   try {
     console.log("⏳ Checking temp_orders for processing...");
+
+    // Start transaction
+    await db.queryAsync('START TRANSACTION');
 
     // Get orders that have been in temp_orders for at least 60 seconds
     const tempOrders = await db.queryAsync(`
       SELECT * FROM temp_orders 
       WHERE TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 60
+      FOR UPDATE
     `);
 
     if (tempOrders.length === 0) {
       console.log("✅ No temp orders to process.");
+      isProcessing = false;
       return;
     }
 
     for (const tempOrder of tempOrders) {
-      const { order_id, remaining } = tempOrder;
+      const { order_id, video_link, quantity, remaining } = tempOrder;
 
       if (remaining > 0) {
         // Move back to orders table with updated remaining count
         await db.queryAsync(`
           INSERT INTO orders (order_id, video_link, quantity, remaining) 
-          SELECT order_id, video_link, quantity, remaining 
-          FROM temp_orders WHERE order_id = ?`, [order_id]);
+          VALUES (?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE remaining = VALUES(remaining)`, 
+          [order_id, video_link, quantity, remaining]
+        );
 
         console.log(`🔄 Order ${order_id} moved back to orders table.`);
       } else {
         // Move to complete_orders table if remaining is 0
         await db.queryAsync(`
           INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) 
-          SELECT order_id, video_link, quantity, NOW() 
-          FROM temp_orders WHERE order_id = ?`, [order_id]);
+          VALUES (?, ?, ?, NOW())`, 
+          [order_id, video_link, quantity]
+        );
 
         console.log(`✅ Order ${order_id} moved to complete_orders.`);
       }
@@ -245,64 +257,63 @@ setInterval(async () => {
       await db.queryAsync('DELETE FROM temp_orders WHERE order_id = ?', [order_id]);
       console.log(`🗑️ Order ${order_id} removed from temp_orders.`);
     }
+
+    // Commit transaction
+    await db.queryAsync('COMMIT');
   } catch (error) {
     console.error("❌ Error processing temp_orders:", error);
+    await db.queryAsync('ROLLBACK'); // Rollback on failure
+  } finally {
+    isProcessing = false; // Reset flag
   }
 }, 60000); // Run every minute
 
-// Check if the orderId or videoLink already exists
-router.post('/check', async (req, res) => {
-  const { orderId, videoLink } = req.body;
-
-  try {
-    const query = 'SELECT * FROM orders WHERE order_id = ? OR video_link = ?';
-    db.queryAsync(query, [orderId, videoLink], (err, result) => {
-      if (err) {
-        return res.status(500).json({ message: 'Database error' });
-      }
-      if (result.length > 0) {
-        return res.json({ exists: true });
-      }
-      res.json({ exists: false });
-    });
-  } catch (err) {
-    return res.status(500).json({ message: 'Server error' });
-  }
-});
 
 //funtion use every 1houre
 
 
 const deleteOldOrders = async () => {
   try {
-    // Step 1: Fetch all usernames from the user table
-    const [rows] = await db.queryAsync("SELECT username FROM user");
+    console.log("🕒 Fetching all usernames...");
 
-    // Ensure rows is an array
-    const users = Array.isArray(rows) ? rows : [rows];
+    // Step 1: Fetch all usernames from the user table
+    const [users] = await db.queryAsync("SELECT username FROM user");
+
+    if (!Array.isArray(users) || users.length === 0) {
+      console.log("🚫 No users found. Skipping cleanup.");
+      return;
+    }
 
     // Step 2: Loop through each user
     for (const user of users) {
       const { username } = user;
       const profileTable = `profile_${username}`; // Dynamic table name
 
-      // Step 3: Delete orders older than 24 hours from the user's profile table
-      const deleteQuery = `
-        DELETE FROM ${profileTable} 
-        WHERE timestamp < NOW() - INTERVAL 24 HOUR
-      `;
+      // Check if the profile table exists
+      const checkTableQuery = `SHOW TABLES LIKE ?`;
+      const [tableExists] = await db.queryAsync(checkTableQuery, [profileTable]);
 
-      await db.queryAsync(deleteQuery);
-      console.log(`✅ Deleted old orders for user: ${username}`);
+      if (tableExists.length === 0) {
+        console.log(`⚠️ Table ${profileTable} does not exist. Skipping.`);
+        continue;
+      }
+
+      // Step 3: Delete orders older than 24 hours in batches
+      let deletedRows;
+      do {
+        const deleteQuery = `DELETE FROM ?? WHERE timestamp < NOW() - INTERVAL 24 HOUR LIMIT 1000`;
+        const [result] = await db.queryAsync(deleteQuery, [profileTable]);
+        deletedRows = result.affectedRows;
+
+        console.log(`✅ Deleted ${deletedRows} old orders from ${profileTable}`);
+      } while (deletedRows > 0); // Repeat until all old records are deleted
     }
 
-    console.log("✅ All old orders deleted successfully!");
+    console.log("✅ Hourly cleanup job completed!");
   } catch (error) {
     console.error("❌ Error deleting old orders:", error);
   }
 };
-
-
 
 // Run every hour (3600000 milliseconds = 1 hour)
 setInterval(async () => {
