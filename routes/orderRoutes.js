@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');  // Assuming db.js is where your MySQL connection is set up
 
-// Fetch orders and compare with user's profile table
+
 router.get("/fetch-order/:username", async (req, res) => {
   const { username } = req.params;
 
@@ -11,13 +11,14 @@ router.get("/fetch-order/:username", async (req, res) => {
   }
 
   const profileTable = `profile_${username}`;
-  const connection = await db.getConnection(); // ✅ Get MySQL connection
 
   try {
-    await connection.beginTransaction(); // ✅ Start transaction
+    const connection = await db.getConnection(); // ✅ Get connection for transaction
 
-    // Step 1: Get a random order that is not in the user’s profile table
-    const [orders] = await connection.query(`
+    await new Promise((resolve, reject) => connection.beginTransaction((err) => (err ? reject(err) : resolve())));
+
+    // ✅ Step 1: Get a random order that is **not in the user’s profile table**
+    const orders = await db.queryAsync(`
       SELECT o.* FROM orders o 
       LEFT JOIN ${profileTable} p ON o.order_id = p.order_id 
       WHERE p.order_id IS NULL 
@@ -26,49 +27,48 @@ router.get("/fetch-order/:username", async (req, res) => {
     `);
 
     if (orders.length === 0) {
-      await connection.release();
+      connection.release(); // ✅ Release connection
       return res.status(200).json({ success: false, message: "No new orders found" });
     }
 
     const randomOrder = orders[0];
 
+    // ✅ Step 2: Process the order based on `remaining` count
     if (randomOrder.remaining <= 1) {
-      await connection.query(`
-        INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) 
-        VALUES (?, ?, ?, NOW())`, 
+      await db.queryAsync(
+        `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) VALUES (?, ?, ?, NOW())`,
         [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity]
       );
-      await connection.query(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
+      await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
     } else {
-      await connection.query(`
-        INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp) 
-        VALUES (?, ?, ?, ?, NOW())`, 
+      await db.queryAsync(
+        `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())`,
         [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity, randomOrder.remaining - 1]
       );
-      await connection.query(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
+      await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
     }
 
-    await connection.query(`
-      INSERT INTO ${profileTable} (order_id, timestamp) 
-      VALUES (?, NOW())`, 
-      [randomOrder.order_id]
-    );
+    // ✅ Step 3: Insert into user’s profile table
+    await db.queryAsync(`INSERT INTO ${profileTable} (order_id, timestamp) VALUES (?, NOW())`, [randomOrder.order_id]);
 
-    await connection.commit(); // ✅ Commit transaction
-    await connection.release(); // ✅ Release connection
+    await new Promise((resolve, reject) => connection.commit((err) => (err ? reject(err) : resolve()))); // ✅ Commit transaction
+    connection.release(); // ✅ Release connection
 
-    res.status(200).json({
-      success: true,
-      order: randomOrder,
-    });
-
+    res.status(200).json({ success: true, order: randomOrder });
   } catch (error) {
-    await connection.rollback(); // ✅ Rollback transaction on error
-    await connection.release();
     console.error("❌ Error processing order:", error);
+
+    if (error.connection) {
+      await new Promise((resolve) => error.connection.rollback(() => resolve())); // ✅ Rollback transaction if error
+      error.connection.release(); // ✅ Release connection
+    }
+
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 });
+
+
+
 
 
 
