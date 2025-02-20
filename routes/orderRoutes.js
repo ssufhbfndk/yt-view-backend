@@ -3,7 +3,7 @@ const router = express.Router();
 const db = require('../config/db');  // Assuming db.js is where your MySQL connection is set up
 
 // Fetch orders and compare with user's profile table
-router.get('/fetch-order/:username', async (req, res) => {
+router.get("/fetch-order/:username", async (req, res) => {
   const { username } = req.params;
 
   if (!username.match(/^[a-zA-Z0-9_]+$/)) {
@@ -11,13 +11,12 @@ router.get('/fetch-order/:username', async (req, res) => {
   }
 
   const profileTable = `profile_${username}`;
-
-  const connection = await db.getConnection(); // Get a connection for transactions
+  const connection = await db.getConnection(); // ✅ Get MySQL connection
 
   try {
-    await connection.beginTransaction(); // Start transaction
+    await connection.beginTransaction(); // ✅ Start transaction
 
-    // Step 1: Get a random order that is not in the user's profile table
+    // Step 1: Get a random order that is not in the user’s profile table
     const [orders] = await connection.query(`
       SELECT o.* FROM orders o 
       LEFT JOIN ${profileTable} p ON o.order_id = p.order_id 
@@ -34,36 +33,29 @@ router.get('/fetch-order/:username', async (req, res) => {
     const randomOrder = orders[0];
 
     if (randomOrder.remaining <= 1) {
-      // Move order to `complete_orders`
       await connection.query(`
         INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) 
         VALUES (?, ?, ?, NOW())`, 
         [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity]
       );
-
-      // Delete from orders
       await connection.query(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
     } else {
-      // Move to `temp_orders` with updated remaining count
       await connection.query(`
         INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp) 
         VALUES (?, ?, ?, ?, NOW())`, 
         [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity, randomOrder.remaining - 1]
       );
-
-      // Delete from orders
       await connection.query(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
     }
 
-    // Step 4: Insert order into the user's profile table
     await connection.query(`
       INSERT INTO ${profileTable} (order_id, timestamp) 
       VALUES (?, NOW())`, 
       [randomOrder.order_id]
     );
 
-    await connection.commit(); // Commit transaction
-    await connection.release();
+    await connection.commit(); // ✅ Commit transaction
+    await connection.release(); // ✅ Release connection
 
     res.status(200).json({
       success: true,
@@ -71,12 +63,13 @@ router.get('/fetch-order/:username', async (req, res) => {
     });
 
   } catch (error) {
-    await connection.rollback(); // Rollback if any error occurs
+    await connection.rollback(); // ✅ Rollback transaction on error
     await connection.release();
     console.error("❌ Error processing order:", error);
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 });
+
 
 
 
