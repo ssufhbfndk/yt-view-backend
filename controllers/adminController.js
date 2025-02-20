@@ -3,6 +3,15 @@ const jwt = require("jsonwebtoken");
 
 const SECRET_KEY = process.env.JWT_SECRET || "supersecretkey";
 
+const generateToken = (admin) => {
+  return jwt.sign(
+    { id: admin.id, username: admin.username, lastActivity: Date.now() },
+    SECRET_KEY,
+    { expiresIn: "7d" } // Token valid for 7 days, but inactive users are logged out after 24 hours
+  );
+};
+
+
 // 🔹 Admin Login (JWT Based)
 exports.login = (req, res) => {
   const { username, password } = req.body;
@@ -26,14 +35,13 @@ exports.login = (req, res) => {
     const admin = results[0];
 
     // ✅ Generate JWT Token
-    const token = jwt.sign({ id: admin.id, username: admin.username }, SECRET_KEY, { expiresIn: "24h" });
+    const token = generateToken(admin);
 
-    // ✅ Send Token in HTTP-Only Cookie
     res.cookie("admin_token", token, {
       httpOnly: true,
-      secure: true, // Requires HTTPS
+      secure: true,
       sameSite: "None",
-      maxAge: 24 * 60 * 60 * 1000, // 1 day expiration
+      maxAge: 7 * 24 * 60 * 60 * 1000, // Cookie valid for 7 days
     });
 
     res.json({ success: true, message: "Admin logged in.", admin: { id: admin.id, username: admin.username } });

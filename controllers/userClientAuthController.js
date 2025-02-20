@@ -1,16 +1,19 @@
-const db = require("../config/db"); // ✅ Ensure correct database import
+const db = require("../config/db");
+const jwt = require("jsonwebtoken");
 
+const SECRET_KEY = process.env.JWT_SECRET || "supersecretkey"; // Secure Secret Key
+
+// 🔹 User Login (JWT-Based)
 exports.userClientLogin = (req, res) => {
   const { username } = req.body;
 
   if (!username) {
-    return res.status(400).json({ success: false, message: "Username are required." });
+    return res.status(400).json({ success: false, message: "Username is required." });
   }
 
   const query = "SELECT * FROM user WHERE username = ?";
 
-  db.queryAsync(query, [username], (err, results) => {
-
+  db.query(query, [username], (err, results) => {
     if (err) {
       console.error("Database error:", err);
       return res.status(500).json({ success: false, message: "Database error." });
@@ -22,25 +25,42 @@ exports.userClientLogin = (req, res) => {
 
     const clientUser = results[0];
 
-    req.session.clientUser = { id: clientUser.id, username: clientUser.username };
-    res.json({ success: true, message: "User logged in.", clientUser: req.session.clientUser });
+    // ✅ Generate JWT Token
+    const token = jwt.sign({ id: clientUser.id, username: clientUser.username }, SECRET_KEY, {
+      expiresIn: "24h",
+    });
+
+    // ✅ Send Token in HTTP-Only Cookie
+    res.cookie("user_token", token, {
+      httpOnly: true,
+      secure: true, // Requires HTTPS
+      sameSite: "None",
+      maxAge: 24 * 60 * 60 * 1000, // 1 day expiration
+    });
+
+    res.json({ success: true, message: "User logged in.", user: { id: clientUser.id, username: clientUser.username } });
   });
 };
 
-// 🔹 Logout User
+// 🔹 User Logout (Clears JWT Cookie)
 exports.logout = (req, res) => {
-    req.session.destroy(() => {
-        res.json({ success: true, message: "User logged out" });
-      });
+  res.clearCookie("user_token", { httpOnly: true, secure: true, sameSite: "None" });
+  res.json({ success: true, message: "User logged out" });
 };
 
-// 🔹 Check Session
+// 🔹 Check User Token (Session Check)
 exports.checkUserSession = (req, res) => {
-  
-    if (req.session.clientUser) {
-      
-        res.json({ success: true, user: req.session.clientUser });
-      } else {
-        res.json({ success: false });
-      }
+  const token = req.cookies.user_token;
+
+  if (!token) {
+    return res.status(401).json({ success: false, message: "No active session." });
+  }
+
+  jwt.verify(token, SECRET_KEY, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({ success: false, message: "Invalid session." });
+    }
+
+    res.json({ success: true, user: decoded });
+  });
 };

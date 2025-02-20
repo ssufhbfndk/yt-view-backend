@@ -1,10 +1,11 @@
 const express = require("express");
-const { userClientLogin,logout, checkUserSession } = require("../controllers/userClientAuthController");
+const { userClientLogin, logout, checkUserSession } = require("../controllers/userClientAuthController");
+const { verifyUserToken } = require("../middlewares/authMiddleware");
 
 const router = express.Router();
 
-router.post("/login", userClientLogin); // ✅ Correct path
-router.post("/logout", logout);
-router.get("/check-session", checkUserSession);
+router.post("/login", userClientLogin); // ✅ User Login
+router.post("/logout", logout); // ✅ User Logout
+router.get("/check-session", verifyUserToken, checkUserSession); // ✅ Protected Session Check
 
 module.exports = router;
