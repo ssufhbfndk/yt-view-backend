@@ -85,7 +85,7 @@ router.get("/get-users", (req, res) => {
 // 🛠 Delete user and associated profile table
 
 // 🛠 Bulk Delete Users API
-router.post("/delete-bulk", (req, res) => {
+router.post("/delete-bulk", async (req, res) => {
   const { usernames } = req.body;
 
   if (!Array.isArray(usernames) || usernames.length === 0) {
@@ -95,24 +95,22 @@ router.post("/delete-bulk", (req, res) => {
   const placeholders = usernames.map(() => "?").join(",");
   const deleteUsersQuery = `DELETE FROM user WHERE username IN (${placeholders})`;
 
-  db.queryAsync(deleteUsersQuery, usernames, (err, result) => {
-    if (err) return res.status(500).json({ error: err.message });
+  try {
+    // Delete users from the 'user' table
+    await db.queryAsync(deleteUsersQuery, usernames);
 
-    let deleteProfileTables = usernames.map((username) => {
-      return new Promise((resolve, reject) => {
-        db.queryAsync(`DROP TABLE IF EXISTS profile_${username}`, (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
-      });
-    });
+    // Drop profile tables
+    await Promise.all(
+      usernames.map((username) =>
+        db.queryAsync(`DROP TABLE IF EXISTS profile_${username}`)
+      )
+    );
 
-    Promise.all(deleteProfileTables)
-      .then(() => {
-        res.json({ success: true, message: "Users and profiles deleted successfully." });
-      })
-      .catch((err) => res.status(500).json({ error: err.message }));
-  });
+    res.json({ success: true, message: "Users and profile tables deleted successfully." });
+  } catch (err) {
+    console.error("Error deleting users or tables:", err);
+    res.status(500).json({ error: "Error deleting users or profile tables." });
+  }
 });
 
 
