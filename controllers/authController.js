@@ -29,17 +29,24 @@ exports.login = (req, res) => {
     // ✅ Store session data
     req.session.admin = { id: admin.id, username: admin.username };
 
-    // ✅ Manually set session cookie
-    res.cookie("user_sid", req.sessionID, {
-      httpOnly: true,
-      secure: true, // HTTPS required
-      sameSite: "None",
+    req.session.save((err) => {
+      if (err) {
+        console.error("Session save error:", err);
+        return res.status(500).json({ success: false, message: "Session error." });
+      }
+
+      // ✅ Manually set session cookie
+      res.cookie("user_sid", req.sessionID, {
+        httpOnly: true,
+        secure: true, // Ensure HTTPS is being used
+        sameSite: "None",
+      });
+
+      console.log("Session ID after login:", req.sessionID);
+      console.log("Session data:", req.session);
+
+      res.json({ success: true, message: "Admin logged in.", admin: req.session.admin });
     });
-
-    console.log("Session ID after login:", req.sessionID);
-    console.log("Session data:", req.session);
-
-    res.json({ success: true, message: "Admin logged in.", admin: req.session.admin });
   });
 };
 
