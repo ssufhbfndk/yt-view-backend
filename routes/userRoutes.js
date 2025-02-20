@@ -12,11 +12,15 @@ const db = require("../config/db"); // MySQL Connection
 
 
 // 🛠 Check if user exists
+// 🛠 Check if user exists
 router.post("/check-user", (req, res) => {
   const { username } = req.body;
 
-  db.queryAsync("SELECT * FROM user WHERE username = ?", [username], (err, results) => {
-    if (err) return res.status(500).json({ error: err.message });
+  db.query("SELECT * FROM user WHERE username = ?", [username], (err, results) => {
+    if (err) {
+      console.error("Database Error:", err);
+      return res.status(500).json({ error: "Database error." });
+    }
 
     return res.json({ exists: results.length > 0 });
   });
@@ -26,20 +30,27 @@ router.post("/check-user", (req, res) => {
 router.post("/add-user", (req, res) => {
   const { username } = req.body;
 
+  if (!username) {
+    return res.status(400).json({ success: false, message: "Username is required." });
+  }
+
   // Check if username already exists
-  db.queryAsync("SELECT * FROM user WHERE username = ?", [username], (err, results) => {
-    if (err) return res.status(500).json({ error: err.message });
+  db.query("SELECT * FROM user WHERE username = ?", [username], (err, results) => {
+    if (err) {
+      console.error("Database Error:", err);
+      return res.status(500).json({ error: "Database error." });
+    }
 
     if (results.length > 0) {
       return res.json({ success: false, message: "Username already exists." });
     }
 
-   // Add user to 'user' table
-db.queryAsync(
-  "INSERT INTO user (username, num_views) VALUES (?, ?)", // Insert both username and num_views
-  [username, 0], // Pass username and 0 as values
-  (err, result) => {
-    if (err) return res.status(500).json({ error: err.message });
+    // Add user to 'user' table
+    db.query("INSERT INTO user (username, num_views) VALUES (?, ?)", [username, 0], (err, result) => {
+      if (err) {
+        console.error("Insert Error:", err);
+        return res.status(500).json({ error: "Failed to insert user." });
+      }
 
       // Create user-specific profile table
       const profileTable = `profile_${username}`;
@@ -50,8 +61,11 @@ db.queryAsync(
         )
       `;
 
-      db.queryAsync(createProfileTable, (err) => {
-        if (err) return res.status(500).json({ error: err.message });
+      db.query(createProfileTable, (err) => {
+        if (err) {
+          console.error("Table Creation Error:", err);
+          return res.status(500).json({ error: "Failed to create profile table." });
+        }
 
         res.json({ success: true, message: "User added and profile table created." });
       });
