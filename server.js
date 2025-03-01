@@ -21,8 +21,10 @@ app.use(cookieParser()); // ✅ For parsing cookies
 
 const corsOptions = {
   origin: [
-    "http://localhost:3000", // Local development
-    "https://yt-view-front.vercel.app", // Production
+   "http://localhost:3000", // React Web App (Development)
+    "https://yt-view-front.vercel.app", // React Web App (Production)
+    "exp://localhost:19000", // React Native Expo Dev Mode
+    "http://localhost", // React Native Emulator
   ],
   methods: ["GET", "POST", "PUT", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization"],
