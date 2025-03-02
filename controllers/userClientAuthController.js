@@ -38,7 +38,12 @@ exports.userClientLogin = (req, res) => {
       maxAge: 24 * 60 * 60 * 1000, // 1 day expiration
     });
 
-    res.json({ success: true, message: "User logged in.", user: { id: clientUser.id, username: clientUser.username } });
+    res.json({ 
+      success: true, 
+      message: "User logged in.", 
+      user: { id: clientUser.id, username: clientUser.username },
+      token: token // 🔥 ADD THIS
+    });
   });
 };
 
