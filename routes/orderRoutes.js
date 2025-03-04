@@ -12,106 +12,97 @@ router.get("/fetch-order/:username", async (req, res) => {
   }
 
   const profileTable = `profile_${username}`;
-  const errorTable = "invalid_videos"; // New table to store invalid videos
+  const errorTable = "invalid_videos";
 
   try {
     const connection = await db.getConnection();
     await new Promise((resolve, reject) => connection.beginTransaction((err) => (err ? reject(err) : resolve())));
 
-    // Fetch a random order that is not in the user’s profile table
-    const orders = await db.queryAsync(`
-      SELECT o.* FROM orders o 
-      LEFT JOIN ${profileTable} p ON o.order_id = p.order_id 
-      WHERE p.order_id IS NULL 
-      ORDER BY RAND() 
-      LIMIT 1
-    `);
+    while (true) {
+      const orders = await db.queryAsync(`
+        SELECT o.* FROM orders o 
+        LEFT JOIN ${profileTable} p ON o.order_id = p.order_id 
+        WHERE p.order_id IS NULL 
+        ORDER BY RAND() 
+        LIMIT 1
+      `);
 
-    if (orders.length === 0) {
-      connection.release();
-      return res.status(200).json({ success: false, message: "No new orders found" });
-    }
+      if (orders.length === 0) {
+        connection.release();
+        return res.status(200).json({ success: false, message: "No new orders found" });
+      }
 
-    let randomOrder = orders[0];
+      let randomOrder = orders[0];
+      const videoUrl = randomOrder.video_link;
+      const validation = await checkVideoWithYtDlp(videoUrl);
 
-    // ✅ Validate the video using yt-dlp
-    const videoUrl = randomOrder.video_link;
-    const isValid = await checkVideoWithYtDlp(videoUrl);
+      if (!validation.valid) {
+        console.warn(`❌ Invalid video detected: ${videoUrl} - Reason: ${validation.reason}`);
 
-    if (!isValid) {
-      console.warn(`❌ Invalid video detected: ${videoUrl}`);
+        await db.queryAsync(
+          `INSERT INTO ${errorTable} (order_id, video_link, error_type, timestamp) VALUES (?, ?, ?, NOW())`,
+          [randomOrder.order_id, videoUrl, validation.reason]
+        );
 
-      // ✅ Store the invalid video in the error table
-      await db.queryAsync(
-        `INSERT INTO ${errorTable} (order_id, video_link, error_type, timestamp) VALUES (?, ?, ?, NOW())`,
-        [randomOrder.order_id, videoUrl, "Video Unavailable"]
-      );
+        await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
+        await db.queryAsync(`DELETE FROM temp_orders WHERE order_id = ?`, [randomOrder.order_id]);
 
-      // ✅ Remove from orders or temp_orders
-      await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
-      await db.queryAsync(`DELETE FROM temp_orders WHERE order_id = ?`, [randomOrder.order_id]);
+        connection.commit();
+        continue; // Fetch another order
+      }
 
+      if (randomOrder.remaining <= 1) {
+        await db.queryAsync(
+          `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) VALUES (?, ?, ?, NOW())`,
+          [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity]
+        );
+        await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
+      } else {
+        await db.queryAsync(
+          `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())`,
+          [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity, randomOrder.remaining - 1]
+        );
+        await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
+      }
+
+      await db.queryAsync(`INSERT INTO ${profileTable} (order_id, timestamp) VALUES (?, NOW())`, [randomOrder.order_id]);
       connection.commit();
       connection.release();
 
-      // ✅ Fetch another order
-      return res.redirect(`/fetch-order/${username}`);
+      return res.status(200).json({ success: true, order: randomOrder });
     }
-
-    // Process order if video is valid
-    if (randomOrder.remaining <= 1) {
-      await db.queryAsync(
-        `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) VALUES (?, ?, ?, NOW())`,
-        [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity]
-      );
-      await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
-    } else {
-      await db.queryAsync(
-        `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())`,
-        [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity, randomOrder.remaining - 1]
-      );
-      await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
-    }
-
-    // ✅ Insert into user’s profile table
-    await db.queryAsync(`INSERT INTO ${profileTable} (order_id, timestamp) VALUES (?, NOW())`, [randomOrder.order_id]);
-
-    connection.commit();
-    connection.release();
-
-    res.status(200).json({ success: true, order: randomOrder });
   } catch (error) {
     console.error("❌ Error processing order:", error);
-
-    if (error.connection) {
-      await new Promise((resolve) => error.connection.rollback(() => resolve()));
-      error.connection.release();
-    }
-
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 });
 
-/**
- * ✅ Function to Check Video Availability Using yt-dlp
- */
 const checkVideoWithYtDlp = (videoUrl) => {
   return new Promise((resolve) => {
-    exec(`yt-dlp --get-title "${videoUrl}"`, (error, stdout, stderr) => {
+    exec(`yt-dlp --dump-json "${videoUrl}"`, (error, stdout, stderr) => {
       if (error || stderr) {
         console.error(`❌ yt-dlp error for ${videoUrl}:`, stderr || error);
-        return resolve(false); // Video is invalid
+        return resolve({ valid: false, reason: "Unavailable or Restricted" });
       }
-      console.log(`✅ Valid video: ${stdout.trim()}`);
-      resolve(true); // Video is valid
+
+      try {
+        const videoData = JSON.parse(stdout);
+        const isEmbeddable = videoData.embed ? videoData.embed : false;
+        const isAgeRestricted = videoData.age_limit > 0;
+        const isDeleted = videoData.availability === "private" || !videoData.webpage_url;
+
+        if (isDeleted) return resolve({ valid: false, reason: "Video Deleted" });
+        if (!isEmbeddable) return resolve({ valid: false, reason: "Embedding Restricted" });
+        if (isAgeRestricted) return resolve({ valid: false, reason: "Age Restricted" });
+
+        resolve({ valid: true, reason: "OK" });
+      } catch (parseError) {
+        console.error("❌ JSON Parsing Error:", parseError);
+        resolve({ valid: false, reason: "Parsing Error" });
+      }
     });
   });
 };
-
-
-
-
-
 
 
 
