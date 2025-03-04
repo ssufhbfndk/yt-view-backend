@@ -2,8 +2,6 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');  // Assuming db.js is where your MySQL connection is set up
 
-const { exec } = require("child_process");
-
 router.get("/fetch-order/:username", async (req, res) => {
   const { username } = req.params;
 
@@ -13,7 +11,7 @@ router.get("/fetch-order/:username", async (req, res) => {
 
   const profileTable = `profile_${username}`;
   const errorTable = "invalid_videos";
-  let retries = 3; // Max 3 attempts to find a valid video
+  let retries = 3;
 
   try {
     const connection = await db.getConnection();
@@ -35,16 +33,13 @@ router.get("/fetch-order/:username", async (req, res) => {
 
       let randomOrder = orders[0];
       const videoUrl = randomOrder.video_link;
-      const validation = await checkVideoWithYtDlp(videoUrl);
+      const validation = await checkVideoWithHttp(videoUrl);
 
       if (!validation.valid) {
         console.warn(`❌ Invalid video detected: ${videoUrl} - Reason: ${validation.reason}`);
 
-        // ✅ Check if already exists in error table to avoid duplicates
-        const existingError = await db.queryAsync(
-          `SELECT * FROM ${errorTable} WHERE order_id = ?`,
-          [randomOrder.order_id]
-        );
+        // ✅ Save invalid video in the database
+        const existingError = await db.queryAsync(`SELECT * FROM ${errorTable} WHERE order_id = ?`, [randomOrder.order_id]);
 
         if (existingError.length === 0) {
           await db.queryAsync(
@@ -53,12 +48,12 @@ router.get("/fetch-order/:username", async (req, res) => {
           );
         }
 
-        // ✅ Remove from all order tables
+        // ✅ Remove from orders & temp_orders
         await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
         await db.queryAsync(`DELETE FROM temp_orders WHERE order_id = ?`, [randomOrder.order_id]);
 
         connection.commit();
-        retries--; // Reduce retry count and try again
+        retries--;
         continue;
       }
 
@@ -94,42 +89,29 @@ router.get("/fetch-order/:username", async (req, res) => {
   }
 });
 
+/**
+ * ✅ Check if a YouTube video is valid using HTTP request (without API Key).
+ */
+const checkVideoWithHttp = async (videoUrl) => {
+  try {
+    const response = await axios.head(videoUrl, { maxRedirects: 5 });
 
-const checkVideoWithYtDlp = (videoUrl) => {
-  return new Promise((resolve) => {
-    exec(`yt-dlp --dump-json "${videoUrl}"`, (error, stdout, stderr) => {
-      if (error || stderr) {
-        console.warn(`⚠️ yt-dlp warning/error for ${videoUrl}:`, stderr || error);
-      }
+    // ✅ Agar status 200 hai, to video exist karta hai
+    if (response.status === 200) {
+      return { valid: true, reason: "OK" };
+    }
+  } catch (error) {
+    if (error.response) {
+      const statusCode = error.response.status;
 
-      try {
-        const videoData = JSON.parse(stdout);
+      if (statusCode === 404) return { valid: false, reason: "Video Deleted" };
+      if (statusCode === 403) return { valid: false, reason: "Video Unavailable or Private" };
+      if (statusCode === 410) return { valid: false, reason: "Video Gone" };
+    }
+    return { valid: false, reason: "Unknown Error" };
+  }
 
-        if (!videoData) {
-          return resolve({ valid: false, reason: "Invalid JSON Response" });
-        }
-
-        // ✅ Check video availability & restrictions
-        const isUnavailable = videoData.availability === "private" || videoData.availability === "unlisted";
-        const isDeleted = videoData.availability === "unavailable" || !videoData.webpage_url;
-        const isEmbeddable = videoData.embed ?? false;
-        const isAgeRestricted = videoData.age_limit > 0;
-        const isPlayable = videoData.playability_status && videoData.playability_status !== "error";
-
-        if (isDeleted) return resolve({ valid: false, reason: "Video Deleted" });
-        if (isUnavailable) return resolve({ valid: false, reason: "Video Unavailable" });
-        if (!isEmbeddable) return resolve({ valid: false, reason: "Embedding Restricted" });
-        if (isAgeRestricted) return resolve({ valid: false, reason: "Age Restricted" });
-        if (!isPlayable) return resolve({ valid: false, reason: "Not Playable" });
-
-        resolve({ valid: true, reason: "OK" });
-
-      } catch (parseError) {
-        console.error("❌ JSON Parsing Error:", parseError);
-        resolve({ valid: false, reason: "Parsing Error" });
-      }
-    });
-  });
+  return { valid: false, reason: "Unknown Error" };
 };
 
 
