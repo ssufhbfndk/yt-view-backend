@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');  // Assuming db.js is where your MySQL connection is set up
 
+const { exec } = require("child_process");
 
 router.get("/fetch-order/:username", async (req, res) => {
   const { username } = req.params;
@@ -11,13 +12,13 @@ router.get("/fetch-order/:username", async (req, res) => {
   }
 
   const profileTable = `profile_${username}`;
+  const errorTable = "invalid_videos"; // New table to store invalid videos
 
   try {
-    const connection = await db.getConnection(); // ✅ Get connection for transaction
-
+    const connection = await db.getConnection();
     await new Promise((resolve, reject) => connection.beginTransaction((err) => (err ? reject(err) : resolve())));
 
-    // ✅ Step 1: Get a random order that is **not in the user’s profile table**
+    // Fetch a random order that is not in the user’s profile table
     const orders = await db.queryAsync(`
       SELECT o.* FROM orders o 
       LEFT JOIN ${profileTable} p ON o.order_id = p.order_id 
@@ -27,13 +28,37 @@ router.get("/fetch-order/:username", async (req, res) => {
     `);
 
     if (orders.length === 0) {
-      connection.release(); // ✅ Release connection
+      connection.release();
       return res.status(200).json({ success: false, message: "No new orders found" });
     }
 
-    const randomOrder = orders[0];
+    let randomOrder = orders[0];
 
-    // ✅ Step 2: Process the order based on `remaining` count
+    // ✅ Validate the video using yt-dlp
+    const videoUrl = randomOrder.video_link;
+    const isValid = await checkVideoWithYtDlp(videoUrl);
+
+    if (!isValid) {
+      console.warn(`❌ Invalid video detected: ${videoUrl}`);
+
+      // ✅ Store the invalid video in the error table
+      await db.queryAsync(
+        `INSERT INTO ${errorTable} (order_id, video_link, error_type, timestamp) VALUES (?, ?, ?, NOW())`,
+        [randomOrder.order_id, videoUrl, "Video Unavailable"]
+      );
+
+      // ✅ Remove from orders or temp_orders
+      await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
+      await db.queryAsync(`DELETE FROM temp_orders WHERE order_id = ?`, [randomOrder.order_id]);
+
+      connection.commit();
+      connection.release();
+
+      // ✅ Fetch another order
+      return res.redirect(`/fetch-order/${username}`);
+    }
+
+    // Process order if video is valid
     if (randomOrder.remaining <= 1) {
       await db.queryAsync(
         `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) VALUES (?, ?, ?, NOW())`,
@@ -48,24 +73,41 @@ router.get("/fetch-order/:username", async (req, res) => {
       await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
     }
 
-    // ✅ Step 3: Insert into user’s profile table
+    // ✅ Insert into user’s profile table
     await db.queryAsync(`INSERT INTO ${profileTable} (order_id, timestamp) VALUES (?, NOW())`, [randomOrder.order_id]);
 
-    await new Promise((resolve, reject) => connection.commit((err) => (err ? reject(err) : resolve()))); // ✅ Commit transaction
-    connection.release(); // ✅ Release connection
+    connection.commit();
+    connection.release();
 
     res.status(200).json({ success: true, order: randomOrder });
   } catch (error) {
     console.error("❌ Error processing order:", error);
 
     if (error.connection) {
-      await new Promise((resolve) => error.connection.rollback(() => resolve())); // ✅ Rollback transaction if error
-      error.connection.release(); // ✅ Release connection
+      await new Promise((resolve) => error.connection.rollback(() => resolve()));
+      error.connection.release();
     }
 
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 });
+
+/**
+ * ✅ Function to Check Video Availability Using yt-dlp
+ */
+const checkVideoWithYtDlp = (videoUrl) => {
+  return new Promise((resolve) => {
+    exec(`yt-dlp --get-title "${videoUrl}"`, (error, stdout, stderr) => {
+      if (error || stderr) {
+        console.error(`❌ yt-dlp error for ${videoUrl}:`, stderr || error);
+        return resolve(false); // Video is invalid
+      }
+      console.log(`✅ Valid video: ${stdout.trim()}`);
+      resolve(true); // Video is valid
+    });
+  });
+};
+
 
 
 
