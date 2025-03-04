@@ -10,8 +10,7 @@ router.get("/fetch-order/:username", async (req, res) => {
   }
 
   const profileTable = `profile_${username}`;
-  const errorTable = "invalid_videos";
-  let retries = 3;
+  
 
   try {
     const connection = await db.getConnection();
@@ -32,32 +31,7 @@ router.get("/fetch-order/:username", async (req, res) => {
       }
 
       let randomOrder = orders[0];
-      const videoUrl = randomOrder.video_link;
-      const validation = await checkVideoWithHttp(videoUrl);
 
-      if (!validation.valid) {
-        console.warn(`❌ Invalid video detected: ${videoUrl} - Reason: ${validation.reason}`);
-
-        // ✅ Save invalid video in the database
-        const existingError = await db.queryAsync(`SELECT * FROM ${errorTable} WHERE order_id = ?`, [randomOrder.order_id]);
-
-        if (existingError.length === 0) {
-          await db.queryAsync(
-            `INSERT INTO ${errorTable} (order_id, video_link, error_type, timestamp) VALUES (?, ?, ?, NOW())`,
-            [randomOrder.order_id, videoUrl, validation.reason]
-          );
-        }
-
-        // ✅ Remove from orders & temp_orders
-        await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
-        await db.queryAsync(`DELETE FROM temp_orders WHERE order_id = ?`, [randomOrder.order_id]);
-
-        connection.commit();
-        retries--;
-        continue;
-      }
-
-      // ✅ Process valid order
       if (randomOrder.remaining <= 1) {
         await db.queryAsync(
           `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) VALUES (?, ?, ?, NOW())`,
@@ -88,32 +62,6 @@ router.get("/fetch-order/:username", async (req, res) => {
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 });
-
-/**
- * ✅ Check if a YouTube video is valid using HTTP request (without API Key).
- */
-const checkVideoWithHttp = async (videoUrl) => {
-  try {
-    const response = await axios.head(videoUrl, { maxRedirects: 5 });
-
-    // ✅ Agar status 200 hai, to video exist karta hai
-    if (response.status === 200) {
-      return { valid: true, reason: "OK" };
-    }
-  } catch (error) {
-    if (error.response) {
-      const statusCode = error.response.status;
-
-      if (statusCode === 404) return { valid: false, reason: "Video Deleted" };
-      if (statusCode === 403) return { valid: false, reason: "Video Unavailable or Private" };
-      if (statusCode === 410) return { valid: false, reason: "Video Gone" };
-    }
-    return { valid: false, reason: "Unknown Error" };
-  }
-
-  return { valid: false, reason: "Unknown Error" };
-};
-
 
 
 // Process data from frontend
