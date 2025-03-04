@@ -10,22 +10,25 @@ router.get("/fetch-order/:username", async (req, res) => {
   }
 
   const profileTable = `profile_${username}`;
-  
+  let retries = 3; // Ensure retries is defined
+
+  let connection;
 
   try {
-    const connection = await db.getConnection();
-    await new Promise((resolve, reject) => connection.beginTransaction((err) => (err ? reject(err) : resolve())));
+    connection = await db.getConnection();
+    await connection.beginTransaction();
 
     while (retries > 0) {
-      const orders = await db.queryAsync(`
-        SELECT o.* FROM orders o 
-        LEFT JOIN ${profileTable} p ON o.order_id = p.order_id 
-        WHERE p.order_id IS NULL 
-        ORDER BY RAND() 
-        LIMIT 1
-      `);
+      const orders = await db.queryAsync(
+        `SELECT o.* FROM orders o 
+         LEFT JOIN ${profileTable} p ON o.order_id = p.order_id 
+         WHERE p.order_id IS NULL 
+         ORDER BY RAND() 
+         LIMIT 1`
+      );
 
       if (orders.length === 0) {
+        await connection.rollback();
         connection.release();
         return res.status(200).json({ success: false, message: "No new orders found" });
       }
@@ -34,35 +37,46 @@ router.get("/fetch-order/:username", async (req, res) => {
 
       if (randomOrder.remaining <= 1) {
         await db.queryAsync(
-          `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) VALUES (?, ?, ?, NOW())`,
+          `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) 
+           VALUES (?, ?, ?, NOW())`,
           [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity]
         );
         await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
       } else {
         await db.queryAsync(
-          `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())`,
+          `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp) 
+           VALUES (?, ?, ?, ?, NOW())`,
           [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity, randomOrder.remaining - 1]
         );
         await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
       }
 
-      await db.queryAsync(`INSERT INTO ${profileTable} (order_id, timestamp) VALUES (?, NOW())`, [randomOrder.order_id]);
+      await db.queryAsync(
+        `INSERT INTO ${profileTable} (order_id, timestamp) VALUES (?, NOW())`,
+        [randomOrder.order_id]
+      );
 
-      connection.commit();
+      await connection.commit();
       connection.release();
 
       return res.status(200).json({ success: true, order: randomOrder });
     }
 
+    await connection.rollback();
     connection.release();
     return res.status(200).json({ success: false, message: "No valid videos found after retries" });
 
   } catch (error) {
     console.error("❌ Error processing order:", error);
-    res.status(500).json({ success: false, message: "Internal Server Error" });
+
+    if (connection) {
+      await connection.rollback();
+      connection.release();
+    }
+
+    return res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
   }
 });
-
 
 // Process data from frontend
 router.post('/process', async (req, res) => {
