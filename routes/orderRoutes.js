@@ -10,73 +10,65 @@ router.get("/fetch-order/:username", async (req, res) => {
   }
 
   const profileTable = `profile_${username}`;
-  let retries = 3; // Ensure retries is defined
-
-  let connection;
 
   try {
-    connection = await db.getConnection();
-    await connection.beginTransaction();
+    const connection = await db.getConnection(); // ✅ Get connection for transaction
 
-    while (retries > 0) {
-      const orders = await db.queryAsync(
-        `SELECT o.* FROM orders o 
-         LEFT JOIN ${profileTable} p ON o.order_id = p.order_id 
-         WHERE p.order_id IS NULL 
-         ORDER BY RAND() 
-         LIMIT 1`
-      );
+    await new Promise((resolve, reject) => connection.beginTransaction((err) => (err ? reject(err) : resolve())));
 
-      if (orders.length === 0) {
-        await connection.rollback();
-        connection.release();
-        return res.status(200).json({ success: false, message: "No new orders found" });
-      }
+    // ✅ Step 1: Get a random order that is **not in the user’s profile table**
+    const orders = await db.queryAsync(`
+      SELECT o.* FROM orders o 
+      LEFT JOIN ${profileTable} p ON o.order_id = p.order_id 
+      WHERE p.order_id IS NULL 
+      ORDER BY RAND() 
+      LIMIT 1
+    `);
 
-      let randomOrder = orders[0];
-
-      if (randomOrder.remaining <= 1) {
-        await db.queryAsync(
-          `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) 
-           VALUES (?, ?, ?, NOW())`,
-          [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity]
-        );
-        await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
-      } else {
-        await db.queryAsync(
-          `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp) 
-           VALUES (?, ?, ?, ?, NOW())`,
-          [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity, randomOrder.remaining - 1]
-        );
-        await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
-      }
-
-      await db.queryAsync(
-        `INSERT INTO ${profileTable} (order_id, timestamp) VALUES (?, NOW())`,
-        [randomOrder.order_id]
-      );
-
-      await connection.commit();
-      connection.release();
-
-      return res.status(200).json({ success: true, order: randomOrder });
+    if (orders.length === 0) {
+      connection.release(); // ✅ Release connection
+      return res.status(200).json({ success: false, message: "No new orders found" });
     }
 
-    await connection.rollback();
-    connection.release();
-    return res.status(200).json({ success: false, message: "No valid videos found after retries" });
+    const randomOrder = orders[0];
 
+    // ✅ Step 2: Process the order based on `remaining` count
+    if (randomOrder.remaining <= 1) {
+      await db.queryAsync(
+        `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) VALUES (?, ?, ?, NOW())`,
+        [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity]
+      );
+      await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
+    } else {
+      await db.queryAsync(
+        `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())`,
+        [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity, randomOrder.remaining - 1]
+      );
+      await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
+    }
+
+    // ✅ Step 3: Insert into user’s profile table
+    await db.queryAsync(`INSERT INTO ${profileTable} (order_id, timestamp) VALUES (?, NOW())`, [randomOrder.order_id]);
+
+    await new Promise((resolve, reject) => connection.commit((err) => (err ? reject(err) : resolve()))); // ✅ Commit transaction
+    connection.release(); // ✅ Release connection
+
+    res.status(200).json({ success: true, order: randomOrder });
   } catch (error) {
     console.error("❌ Error processing order:", error);
 
-    if (connection) {
-      await connection.rollback();
-      connection.release();
+    if (error.connection) {
+      await new Promise((resolve) => error.connection.rollback(() => resolve())); // ✅ Rollback transaction if error
+      error.connection.release(); // ✅ Release connection
     }
 
-    return res.status(500).json({ success: false, message: "Internal Server Error", error: error.message });
+    res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 });
+
+
+
+
 
 // Process data from frontend
 router.post('/process', async (req, res) => {
