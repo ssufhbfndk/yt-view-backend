@@ -68,7 +68,7 @@ router.get("/fetch-order/:username", async (req, res) => {
 
 
 
-router.post('/orders/invalid-video', async (req, res) => {
+router.post('/invalid-video', async (req, res) => {
   const { order_id, video_link } = req.body;
 
   if (!order_id || !video_link) {
