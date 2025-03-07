@@ -75,49 +75,43 @@ router.post('/invalid-video', async (req, res) => {
     return res.status(400).json({ success: false, message: "Missing order_id or video_link" });
   }
 
+  let connection;
   try {
-    const connection = await db.getConnection(); // Get connection for transaction
+    connection = await db.getConnection(); // Get connection for transaction
     await connection.beginTransaction(); // Start transaction
 
     // Step 1: Find the order in either the orders or temp_orders table
     const [order] = await connection.query(
-      `SELECT * FROM orders WHERE order_id = ? OR video_link = ?
-       UNION
-       SELECT * FROM temp_orders WHERE order_id = ? OR video_link = ?`,
+      `SELECT *, 'orders' AS tableName FROM orders WHERE order_id = ? OR video_link = ?
+       UNION ALL
+       SELECT *, 'temp_orders' AS tableName FROM temp_orders WHERE order_id = ? OR video_link = ?`,
       [order_id, video_link, order_id, video_link]
     );
 
-    if (order.length === 0) {
+    if (!order || order.length === 0) {
       await connection.rollback(); // Rollback transaction
       connection.release(); // Release connection
       return res.status(404).json({ success: false, message: "Order not found in orders or temp_orders" });
     }
 
     const orderDetails = order[0];
+    const tableToDelete = orderDetails.tableName;
 
     // Step 2: Delete the order from the table it exists in
-    if (orderDetails.tableName === 'orders') {
-      await connection.query(
-        'DELETE FROM orders WHERE order_id = ? OR video_link = ?',
-        [order_id, video_link]
-      );
-    } else if (orderDetails.tableName === 'temp_orders') {
-      await connection.query(
-        'DELETE FROM temp_orders WHERE order_id = ? OR video_link = ?',
-        [order_id, video_link]
-      );
-    }
+    await connection.query(
+      `DELETE FROM ?? WHERE order_id = ? OR video_link = ?`,
+      [tableToDelete, order_id, video_link]
+    );
 
     // Step 3: Save the order details in the invalid_videos table
     await connection.query(
-      'INSERT INTO invalid_videos (order_id, video_link, quantity, error_type) VALUES (?, ?, ?, ?)',
+      'INSERT INTO invalid_videos (order_id, video_link, quantity, error_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
       [orderDetails.order_id, orderDetails.video_link, orderDetails.quantity, "unavailable"]
     );
 
     await connection.commit(); // Commit transaction
     connection.release(); // Release connection
 
-    // Step 4: Send success response
     res.status(200).json({
       success: true,
       message: "Order marked as invalid and moved to invalid_videos table",
@@ -129,13 +123,14 @@ router.post('/invalid-video', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Error processing invalid video:", error);
-    await connection.rollback(); // Rollback transaction on error
-    connection.release(); // Release connection
+    console.error("❌ Error processing invalid video:", error);
+    if (connection) {
+      await connection.rollback(); // Rollback transaction on error
+      connection.release(); // Release connection
+    }
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
-
 // Process data from frontend
 router.post('/process', async (req, res) => {
   const { data } = req.body;
