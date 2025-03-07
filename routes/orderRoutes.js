@@ -71,16 +71,22 @@ router.get("/fetch-order/:username", async (req, res) => {
 router.post('/invalid-video', async (req, res) => {
   const { order_id, video_link } = req.body;
 
+  console.log("Received request to mark video as invalid:", { order_id, video_link });
+
   if (!order_id || !video_link) {
+    console.log("❌ Missing order_id or video_link");
     return res.status(400).json({ success: false, message: "Missing order_id or video_link" });
   }
 
   let connection;
   try {
-    connection = await db.getConnection(); // Get connection for transaction
-    await connection.beginTransaction(); // Start transaction
+    connection = await db.getConnection();
+    console.log("✅ Database connection established");
 
-    // Step 1: Find the order in either the orders or temp_orders table
+    await connection.beginTransaction();
+    console.log("🔄 Transaction started");
+
+    // Step 1: Find the order
     const [order] = await connection.query(
       `SELECT *, 'orders' AS tableName FROM orders WHERE order_id = ? OR video_link = ?
        UNION ALL
@@ -89,28 +95,37 @@ router.post('/invalid-video', async (req, res) => {
     );
 
     if (!order || order.length === 0) {
-      await connection.rollback(); // Rollback transaction
-      connection.release(); // Release connection
+      console.log("⚠️ Order not found in orders or temp_orders");
+      await connection.rollback();
+      connection.release();
       return res.status(404).json({ success: false, message: "Order not found in orders or temp_orders" });
     }
 
     const orderDetails = order[0];
     const tableToDelete = orderDetails.tableName;
 
-    // Step 2: Delete the order from the table it exists in
+    console.log(`✅ Order found in ${tableToDelete}, proceeding with deletion`);
+
+    // Step 2: Delete the order
     await connection.query(
-      `DELETE FROM ?? WHERE order_id = ? OR video_link = ?`,
-      [tableToDelete, order_id, video_link]
+      `DELETE FROM ${tableToDelete} WHERE order_id = ? OR video_link = ?`,
+      [order_id, video_link]
     );
 
-    // Step 3: Save the order details in the invalid_videos table
+    console.log("✅ Order deleted from", tableToDelete);
+
+    // Step 3: Insert into invalid_videos table
     await connection.query(
       'INSERT INTO invalid_videos (order_id, video_link, quantity, error_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
       [orderDetails.order_id, orderDetails.video_link, orderDetails.quantity, "unavailable"]
     );
 
-    await connection.commit(); // Commit transaction
-    connection.release(); // Release connection
+    console.log("✅ Order moved to invalid_videos table");
+
+    await connection.commit();
+    console.log("✅ Transaction committed successfully");
+
+    connection.release();
 
     res.status(200).json({
       success: true,
@@ -125,12 +140,16 @@ router.post('/invalid-video', async (req, res) => {
   } catch (error) {
     console.error("❌ Error processing invalid video:", error);
     if (connection) {
-      await connection.rollback(); // Rollback transaction on error
-      connection.release(); // Release connection
+      await connection.rollback();
+      connection.release();
     }
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
+
+
+
+
 // Process data from frontend
 router.post('/process', async (req, res) => {
   const { data } = req.body;
