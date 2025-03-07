@@ -9,7 +9,7 @@ router.get("/fetch-order/:username", async (req, res) => {
     return res.status(400).json({ success: false, message: "Invalid username" });
   }
 
-  
+
   const profileTable = `profile_${username}`;
 
   try {
@@ -75,7 +75,7 @@ router.post('/invalid-video', async (req, res) => {
   console.log("Received request to mark video as invalid:", { order_id, video_link });
 
   if (!order_id || !video_link) {
-    console.log("❌ Missing order_id or video_link");
+    console.log("❌ Missing order_id or chk video_link");
     return res.status(400).json({ success: false, message: "Missing order_id or video_link" });
   }
 
