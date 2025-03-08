@@ -82,10 +82,10 @@ router.post('/invalid-video', async (req, res) => {
   let connection;
   try {
     connection = await db.getConnection(); // ✅ Get a connection from the pool
-    console.log("✅ Database connection established");
+    
 
     await new Promise((resolve, reject) => connection.beginTransaction(err => err ? reject(err) : resolve()));
-    console.log("🔄 Transaction started");
+   
 
     // Step 1: Check if the order exists in `orders`
     const orderFromOrders = await new Promise((resolve, reject) => {
@@ -126,7 +126,7 @@ router.post('/invalid-video', async (req, res) => {
       return res.status(404).json({ success: false, message: "Order not found" });
     }
 
-    console.log(`✅ Order found in ${tableToDelete}, proceeding with deletion`);
+    
 
     // Step 3: Delete from the correct table
     await new Promise((resolve, reject) => {
@@ -137,7 +137,7 @@ router.post('/invalid-video', async (req, res) => {
       );
     });
 
-    console.log(`✅ Order deleted from ${tableToDelete}`);
+    
 
     // Step 4: Move to `invalid_videos` table
     await new Promise((resolve, reject) => {
@@ -148,10 +148,10 @@ router.post('/invalid-video', async (req, res) => {
       );
     });
 
-    console.log("✅ Order moved to invalid_videos table");
+
 
     await new Promise((resolve, reject) => connection.commit(err => err ? reject(err) : resolve()));
-    console.log("✅ Transaction committed successfully");
+   
 
     connection.release();
 
@@ -393,12 +393,15 @@ const deleteOldOrders = async () => {
     console.log("🕒 Fetching all usernames...");
 
     // Step 1: Fetch all usernames from the user table
-    const [users] = await db.queryAsync("SELECT username FROM user");
+    const users = await db.queryAsync("SELECT username FROM user");
 
     if (!Array.isArray(users) || users.length === 0) {
       console.log("🚫 No users found. Skipping cleanup.");
       return;
     }
+
+    const fixedTime = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24 hours ago
+
 
     // Step 2: Loop through each user
     for (const user of users) {
@@ -407,25 +410,23 @@ const deleteOldOrders = async () => {
 
       // Check if the profile table exists
       const checkTableQuery = `SHOW TABLES LIKE ?`;
-      const [tableExists] = await db.queryAsync(checkTableQuery, [profileTable]);
+      const tableExists = await db.queryAsync(checkTableQuery, [profileTable]);
 
       if (tableExists.length === 0) {
         console.log(`⚠️ Table ${profileTable} does not exist. Skipping.`);
         continue;
       }
 
-      // Step 3: Delete orders older than 24 hours in batches
-      let deletedRows;
-      do {
-        const deleteQuery = `DELETE FROM ?? WHERE timestamp < NOW() - INTERVAL 24 HOUR LIMIT 1000`;
-        const [result] = await db.queryAsync(deleteQuery, [profileTable]);
-        deletedRows = result.affectedRows;
+      console.log(`🧹 Cleaning up old orders from ${profileTable}...`);
 
-        console.log(`✅ Deleted ${deletedRows} old orders from ${profileTable}`);
-      } while (deletedRows > 0); // Repeat until all old records are deleted
+      // Step 3: Delete all orders older than the fixed time
+      const deleteQuery = `DELETE FROM ?? WHERE timestamp < ?`;
+      const result = await db.queryAsync(deleteQuery, [profileTable, fixedTime]);
+
+      console.log(`✅ Deleted ${result.affectedRows} old orders from ${profileTable}`);
     }
 
-    console.log("✅ Hourly cleanup job completed!");
+    console.log("✅ Cleanup job completed!");
   } catch (error) {
     console.error("❌ Error deleting old orders:", error);
   }
@@ -435,7 +436,7 @@ const deleteOldOrders = async () => {
 setInterval(async () => {
   console.log("🕒 Running hourly cleanup job...");
   await deleteOldOrders();
-}, 3600000);
+}, 60000);
 
 
 
