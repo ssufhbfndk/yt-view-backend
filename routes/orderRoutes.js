@@ -436,7 +436,7 @@ const deleteOldOrders = async () => {
 setInterval(async () => {
   console.log("🕒 Running hourly cleanup job...");
   await deleteOldOrders();
-}, 60000);
+}, 3600000);
 
 
 
