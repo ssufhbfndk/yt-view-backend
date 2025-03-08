@@ -81,20 +81,20 @@ router.post('/invalid-video', async (req, res) => {
 
   let connection;
   try {
-    connection = await db.getConnection();
+    connection = await db.getConnection(); // ✅ Get connection from pool
     console.log("✅ Database connection established");
 
     await connection.beginTransaction();
     console.log("🔄 Transaction started");
 
     // Step 1: Check if the order exists in `orders`
-    const [orderFromOrders] = await connection.query(
+    const ordersResult = await db.queryAsync(
       `SELECT order_id, video_link, quantity FROM orders WHERE order_id = ? OR video_link = ? LIMIT 1`,
       [order_id, video_link]
     );
 
     // Step 2: Check if the order exists in `temp_orders`
-    const [orderFromTemp] = await connection.query(
+    const tempOrdersResult = await db.queryAsync(
       `SELECT order_id, video_link, quantity FROM temp_orders WHERE order_id = ? OR video_link = ? LIMIT 1`,
       [order_id, video_link]
     );
@@ -102,16 +102,16 @@ router.post('/invalid-video', async (req, res) => {
     let orderDetails = null;
     let tableToDelete = null;
 
-    if (orderFromOrders.length > 0 && orderFromTemp.length > 0) {
+    if (ordersResult.length > 0 && tempOrdersResult.length > 0) {
       console.log("⚠️ Order found in both tables! This should not happen.");
       await connection.rollback();
       connection.release();
       return res.status(500).json({ success: false, message: "Data inconsistency: order exists in both tables." });
-    } else if (orderFromOrders.length > 0) {
-      orderDetails = orderFromOrders[0];
+    } else if (ordersResult.length > 0) {
+      orderDetails = ordersResult[0];
       tableToDelete = "orders";
-    } else if (orderFromTemp.length > 0) {
-      orderDetails = orderFromTemp[0];
+    } else if (tempOrdersResult.length > 0) {
+      orderDetails = tempOrdersResult[0];
       tableToDelete = "temp_orders";
     } else {
       console.log("⚠️ Order not found in orders or temp_orders");
@@ -123,7 +123,7 @@ router.post('/invalid-video', async (req, res) => {
     console.log(`✅ Order found in ${tableToDelete}, proceeding with deletion`);
 
     // Step 3: Delete from the correct table
-    await connection.query(
+    await db.queryAsync(
       `DELETE FROM ${tableToDelete} WHERE order_id = ? OR video_link = ?`,
       [order_id, video_link]
     );
@@ -131,8 +131,9 @@ router.post('/invalid-video', async (req, res) => {
     console.log(`✅ Order deleted from ${tableToDelete}`);
 
     // Step 4: Move to `invalid_videos` table
-    await connection.query(
-      'INSERT INTO invalid_videos (order_id, video_link, quantity, error_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
+    await db.queryAsync(
+      `INSERT INTO invalid_videos (order_id, video_link, quantity, error_type, timestamp) 
+       VALUES (?, ?, ?, ?, NOW())`,
       [orderDetails.order_id, orderDetails.video_link, orderDetails.quantity, "unavailable"]
     );
 
@@ -155,7 +156,7 @@ router.post('/invalid-video', async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error processing invalid video:", error);
-    
+
     if (connection) {
       await connection.rollback();
       connection.release();
