@@ -72,10 +72,10 @@ router.get("/fetch-order/:username", async (req, res) => {
 router.post('/invalid-video', async (req, res) => {
   const { order_id, video_link } = req.body;
 
-  console.log("Received request to mark video as invalid:", { order_id, video_link });
+  console.log("📌 Received request to mark video as invalid:", { order_id, video_link });
 
   if (!order_id || !video_link) {
-    console.log("❌ Missing order_id or chk video_link");
+    console.log("❌ Missing order_id or video_link");
     return res.status(400).json({ success: false, message: "Missing order_id or video_link" });
   }
 
@@ -87,35 +87,50 @@ router.post('/invalid-video', async (req, res) => {
     await connection.beginTransaction();
     console.log("🔄 Transaction started");
 
-    // Step 1: Find the order
-    const [order] = await connection.query(
-      `SELECT *, 'orders' AS tableName FROM orders WHERE order_id = ? OR video_link = ?
-       UNION ALL
-       SELECT *, 'temp_orders' AS tableName FROM temp_orders WHERE order_id = ? OR video_link = ?`,
-      [order_id, video_link, order_id, video_link]
+    // Step 1: Check if the order exists in `orders`
+    const [orderFromOrders] = await connection.query(
+      `SELECT order_id, video_link, quantity FROM orders WHERE order_id = ? OR video_link = ? LIMIT 1`,
+      [order_id, video_link]
     );
 
-    if (!order || order.length === 0) {
+    // Step 2: Check if the order exists in `temp_orders`
+    const [orderFromTemp] = await connection.query(
+      `SELECT order_id, video_link, quantity FROM temp_orders WHERE order_id = ? OR video_link = ? LIMIT 1`,
+      [order_id, video_link]
+    );
+
+    let orderDetails = null;
+    let tableToDelete = null;
+
+    if (orderFromOrders.length > 0 && orderFromTemp.length > 0) {
+      console.log("⚠️ Order found in both tables! This should not happen.");
+      await connection.rollback();
+      connection.release();
+      return res.status(500).json({ success: false, message: "Data inconsistency: order exists in both tables." });
+    } else if (orderFromOrders.length > 0) {
+      orderDetails = orderFromOrders[0];
+      tableToDelete = "orders";
+    } else if (orderFromTemp.length > 0) {
+      orderDetails = orderFromTemp[0];
+      tableToDelete = "temp_orders";
+    } else {
       console.log("⚠️ Order not found in orders or temp_orders");
       await connection.rollback();
       connection.release();
-      return res.status(404).json({ success: false, message: "Order not found in orders or temp_orders" });
+      return res.status(404).json({ success: false, message: "Order not found" });
     }
-
-    const orderDetails = order[0];
-    const tableToDelete = orderDetails.tableName;
 
     console.log(`✅ Order found in ${tableToDelete}, proceeding with deletion`);
 
-    // Step 2: Delete the order
+    // Step 3: Delete from the correct table
     await connection.query(
       `DELETE FROM ${tableToDelete} WHERE order_id = ? OR video_link = ?`,
       [order_id, video_link]
     );
 
-    console.log("✅ Order deleted from", tableToDelete);
+    console.log(`✅ Order deleted from ${tableToDelete}`);
 
-    // Step 3: Insert into invalid_videos table
+    // Step 4: Move to `invalid_videos` table
     await connection.query(
       'INSERT INTO invalid_videos (order_id, video_link, quantity, error_type, timestamp) VALUES (?, ?, ?, ?, NOW())',
       [orderDetails.order_id, orderDetails.video_link, orderDetails.quantity, "unavailable"]
@@ -140,14 +155,15 @@ router.post('/invalid-video', async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error processing invalid video:", error);
+    
     if (connection) {
       await connection.rollback();
       connection.release();
     }
-    res.status(500).json({ success: false, message: "Internal server error" });
+
+    res.status(500).json({ success: false, message: "Internal server error", error: error.message });
   }
 });
-
 
 
 
