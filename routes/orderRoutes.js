@@ -24,7 +24,7 @@ router.get("/fetch-order/:username", async (req, res) => {
     await connection.beginTransaction();
 
     try {
-      // Step 1: Get a random order not in user's profile
+      // Step 1: Get a random order not in user's profile j
       const [orders] = await connection.query(`
         SELECT o.* FROM orders o 
         LEFT JOIN ${profileTable} p ON o.order_id = p.order_id 
