@@ -342,16 +342,17 @@ router.delete('/deleteOrderComplete/:id', async (req, res) => {
 
 
 
-// Temp orders processor with enhanced error handling and logging
+
+// Temp orders processor with robust error handling
 let isProcessing = false;
-let processingInterval = 60000; // 1 minute
+const PROCESSING_INTERVAL = 60000; // 1 minute
 
 async function processTempOrders() {
   if (isProcessing) {
     console.log('⏳ Processing already in progress. Skipping...');
     return;
   }
-  
+
   isProcessing = true;
   const startTime = Date.now();
   let processedCount = 0;
@@ -361,21 +362,28 @@ async function processTempOrders() {
     console.log('⏳ Starting temp orders processing...');
 
     await db.executeTransaction(async (tx) => {
-      // 1. Fetch eligible orders
-      const [tempOrders] = await tx.query(`
-        SELECT * FROM temp_orders 
-        WHERE TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 60
-        ORDER BY timestamp ASC
-        LIMIT 100
-        FOR UPDATE
-      `);
+      // 1. Fetch eligible orders with proper error handling
+      let tempOrders = [];
+      try {
+        const result = await tx.query(`
+          SELECT * FROM temp_orders 
+          WHERE TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 60
+          ORDER BY timestamp ASC
+          LIMIT 100
+          FOR UPDATE
+        `);
+        tempOrders = Array.isArray(result[0]) ? result[0] : [];
+      } catch (fetchError) {
+        console.error('❌ Failed to fetch temp orders:', fetchError.message);
+        throw fetchError; // Re-throw to trigger transaction rollback
+      }
 
-      if (!tempOrders.length) {
+      if (tempOrders.length === 0) {
         console.log('✅ No temp orders to process.');
         return;
       }
 
-      // 2. Process each order
+      // 2. Process each order with individual error handling
       for (const order of tempOrders) {
         try {
           const { order_id, video_link, quantity, remaining } = order;
@@ -403,7 +411,7 @@ async function processTempOrders() {
           `, [order_id]);
 
           processedCount++;
-          console.log(`♻️ Processed order ${order_id}`);
+          console.log(`♻️ Processed order ${order_id} (${remaining} remaining)`);
 
         } catch (orderError) {
           errorCount++;
@@ -416,39 +424,32 @@ async function processTempOrders() {
     // Log processing summary
     const duration = (Date.now() - startTime) / 1000;
     console.log(`✅ Processing complete. 
-      Orders: ${processedCount} processed, ${errorCount} failed
-      Duration: ${duration.toFixed(2)}s`);
+      Stats: ${processedCount} processed, ${errorCount} failed
+      Time: ${duration.toFixed(2)}s`);
 
   } catch (mainError) {
     console.error('❌ CRITICAL PROCESSING ERROR:', mainError.message);
-    // Implement your alert system here (email, Slack, etc.)
+    // Here you could add notification logic (email, Slack, etc.)
     
   } finally {
     isProcessing = false;
-    
-    // Dynamic interval adjustment based on load
-    if (processedCount > 50) {
-      processingInterval = 30000; // 30s if heavy load
-    } else {
-      processingInterval = 60000; // 1m normal
-    }
   }
 }
 
-// Start processing with error handling
+// Robust processor starter with error handling
 function startOrderProcessor() {
-  async function run() {
+  const run = async () => {
     try {
       await processTempOrders();
     } catch (e) {
-      console.error('Processor error:', e);
+      console.error('Processor cycle error:', e.message);
     } finally {
-      setTimeout(run, processingInterval);
+      setTimeout(run, PROCESSING_INTERVAL);
     }
-  }
-  
-  // Initial start
-  run().catch(e => console.error('Failed to start processor:', e));
+  };
+
+  // Start the first cycle
+  run().catch(e => console.error('Processor startup failed:', e.message));
 }
 
 // Start the processor
