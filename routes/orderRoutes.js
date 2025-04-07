@@ -331,12 +331,15 @@ setInterval(async () => {
   let connection;
 
   try {
-    // Get a dedicated connection for transaction
     connection = await db.getConnection();
-    await connection.beginTransaction();
 
-    // Fetch orders older than 60 seconds with a lock
-    const [tempOrders] = await connection.query(`
+    // Use the promise wrapper for async/await
+    const conn = connection.promise();
+
+    await conn.query('START TRANSACTION');
+
+    // Select eligible orders
+    const [tempOrders] = await conn.query(`
       SELECT * FROM temp_orders
       WHERE TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 60
       FOR UPDATE
@@ -344,7 +347,7 @@ setInterval(async () => {
 
     if (tempOrders.length === 0) {
       console.log("✅ No temp orders to process.");
-      await connection.commit();
+      await conn.query('COMMIT');
       return;
     }
 
@@ -352,7 +355,7 @@ setInterval(async () => {
       const { order_id, video_link, quantity, remaining } = tempOrder;
 
       if (remaining > 0) {
-        await connection.query(`
+        await conn.query(`
           INSERT INTO orders (order_id, video_link, quantity, remaining)
           VALUES (?, ?, ?, ?)
           ON DUPLICATE KEY UPDATE remaining = VALUES(remaining)
@@ -360,7 +363,7 @@ setInterval(async () => {
 
         console.log(`🔄 Order ${order_id} moved back to orders table.`);
       } else {
-        await connection.query(`
+        await conn.query(`
           INSERT INTO complete_orders (order_id, video_link, quantity, timestamp)
           VALUES (?, ?, ?, NOW())
         `, [order_id, video_link, quantity]);
@@ -368,24 +371,24 @@ setInterval(async () => {
         console.log(`✅ Order ${order_id} moved to complete_orders.`);
       }
 
-      // Delete from temp_orders
-      await connection.query(
+      await conn.query(
         `DELETE FROM temp_orders WHERE order_id = ?`,
         [order_id]
       );
+
       console.log(`🗑️ Order ${order_id} removed from temp_orders.`);
     }
 
-    await connection.commit();
+    await conn.query('COMMIT');
     console.log("🎉 All eligible temp_orders processed successfully.");
   } catch (error) {
     console.error("❌ Error during temp_orders processing:", error);
-    if (connection) await connection.rollback();
+    if (connection) await connection.promise().query('ROLLBACK');
   } finally {
     if (connection) connection.release();
     isProcessing = false;
   }
-}, 60000); // Every 1 minute
+}, 60000);
 
 
 //funtion use every 1houre
