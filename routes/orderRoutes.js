@@ -5,68 +5,90 @@ const db = require('../config/db');  // Assuming db.js is where your MySQL conne
 router.get("/fetch-order/:username", async (req, res) => {
   const { username } = req.params;
 
+  // Validate username format
   if (!username.match(/^[a-zA-Z0-9_]+$/)) {
     return res.status(400).json({ success: false, message: "Invalid username" });
   }
 
-
   const profileTable = `profile_${username}`;
 
   try {
-    const connection = await db.getConnection(); // ✅ Get connection for transaction
+    // Get connection and start transaction
+    const connection = await new Promise((resolve, reject) => {
+      pool.getConnection((err, conn) => {
+        if (err) reject(err);
+        else resolve(conn);
+      });
+    });
 
-    await new Promise((resolve, reject) => connection.beginTransaction((err) => (err ? reject(err) : resolve())));
+    await connection.beginTransaction();
 
-    // ✅ Step 1: Get a random order that is **not in the user’s profile table**
-    const orders = await db.queryAsync(`
-      SELECT o.* FROM orders o 
-      LEFT JOIN ${profileTable} p ON o.order_id = p.order_id 
-      WHERE p.order_id IS NULL 
-      ORDER BY RAND() 
-      LIMIT 1
-    `);
+    try {
+      // Step 1: Get a random order not in user's profile
+      const [orders] = await connection.query(`
+        SELECT o.* FROM orders o 
+        LEFT JOIN ${profileTable} p ON o.order_id = p.order_id 
+        WHERE p.order_id IS NULL 
+        ORDER BY RAND() 
+        LIMIT 1
+      `);
 
-    if (orders.length === 0) {
-      connection.release(); // ✅ Release connection
-      return res.status(200).json({ success: false, message: "No new orders found" });
+      if (orders.length === 0) {
+        await connection.rollback();
+        connection.release();
+        return res.status(200).json({ success: false, message: "No new orders found" });
+      }
+
+      const randomOrder = orders[0];
+
+      // Step 2: Process order based on remaining count
+      if (randomOrder.remaining <= 1) {
+        await connection.query(
+          `INSERT INTO complete_orders (order_id, video_link, quantity) VALUES (?, ?, ?)`,
+          [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity]
+        );
+      } else {
+        await connection.query(
+          `INSERT INTO temp_orders (order_id, video_link, quantity, remaining) VALUES (?, ?, ?, ?)`,
+          [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity, randomOrder.remaining - 1]
+        );
+      }
+
+      // Remove from orders table
+      await connection.query(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
+
+      // Step 3: Record in user's profile
+      await connection.query(
+        `INSERT INTO ${profileTable} (order_id) VALUES (?)`,
+        [randomOrder.order_id]
+      );
+
+      await connection.commit();
+      connection.release();
+
+      return res.status(200).json({ 
+        success: true, 
+        order: {
+          ...randomOrder,
+          videoId: extractVideoId(randomOrder.video_link) // Extract clean video ID
+        } 
+      });
+
+    } catch (error) {
+      await connection.rollback();
+      connection.release();
+      throw error;
     }
 
-    const randomOrder = orders[0];
-
-    // ✅ Step 2: Process the order based on `remaining` count
-    if (randomOrder.remaining <= 1) {
-      await db.queryAsync(
-        `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) VALUES (?, ?, ?, NOW())`,
-        [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity]
-      );
-      await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
-    } else {
-      await db.queryAsync(
-        `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())`,
-        [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity, randomOrder.remaining - 1]
-      );
-      await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
-    }
-
-    // ✅ Step 3: Insert into user’s profile table
-    await db.queryAsync(`INSERT INTO ${profileTable} (order_id, timestamp) VALUES (?, NOW())`, [randomOrder.order_id]);
-
-    await new Promise((resolve, reject) => connection.commit((err) => (err ? reject(err) : resolve()))); // ✅ Commit transaction
-    connection.release(); // ✅ Release connection
-
-    res.status(200).json({ success: true, order: randomOrder });
   } catch (error) {
     console.error("❌ Error processing order:", error);
-
-    if (error.connection) {
-      await new Promise((resolve) => error.connection.rollback(() => resolve())); // ✅ Rollback transaction if error
-      error.connection.release(); // ✅ Release connection
-    }
-
-    res.status(500).json({ success: false, message: "Internal Server Error" });
+    return res.status(500).json({ 
+      success: false, 
+      message: "Internal Server Error",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
-
 
 
 router.post('/invalid-video', async (req, res) => {
@@ -319,70 +341,69 @@ router.delete('/deleteOrderComplete/:id', async (req, res) => {
 ///////////////////////////////////////////////////////////////
 
 
-// Process orders every 1 minute
-let isProcessing = false; // Flag to prevent overlapping executions
 
-setInterval(async () => {
-  if (isProcessing) return; // Prevent concurrent execution
+// Temp orders processor
+let isProcessing = false;
+
+async function processTempOrders() {
+  if (isProcessing) return;
   isProcessing = true;
 
   try {
     console.log("⏳ Checking temp_orders for processing...");
 
-    // Start transaction
-    await db.queryAsync('START TRANSACTION');
+    await db.executeTransaction(async (connection) => {
+      const [tempOrders] = await connection.query(`
+        SELECT * FROM temp_orders 
+        WHERE TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 60
+        FOR UPDATE
+      `);
 
-    // Get orders that have been in temp_orders for at least 60 seconds
-    const tempOrders = await db.queryAsync(`
-      SELECT * FROM temp_orders 
-      WHERE TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 60
-      FOR UPDATE
-    `);
-
-    if (tempOrders.length === 0) {
-      console.log("✅ No temp orders to process.");
-      isProcessing = false;
-      return;
-    }
-
-    for (const tempOrder of tempOrders) {
-      const { order_id, video_link, quantity, remaining } = tempOrder;
-
-      if (remaining > 0) {
-        // Move back to orders table with updated remaining count
-        await db.queryAsync(`
-          INSERT INTO orders (order_id, video_link, quantity, remaining) 
-          VALUES (?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE remaining = VALUES(remaining)`, 
-          [order_id, video_link, quantity, remaining]
-        );
-
-        console.log(`🔄 Order ${order_id} moved back to orders table.`);
-      } else {
-        // Move to complete_orders table if remaining is 0
-        await db.queryAsync(`
-          INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) 
-          VALUES (?, ?, ?, NOW())`, 
-          [order_id, video_link, quantity]
-        );
-
-        console.log(`✅ Order ${order_id} moved to complete_orders.`);
+      if (tempOrders.length === 0) {
+        console.log("✅ No temp orders to process.");
+        return;
       }
 
-      // Delete processed order from temp_orders
-      await db.queryAsync('DELETE FROM temp_orders WHERE order_id = ?', [order_id]);
-      console.log(`🗑️ Order ${order_id} removed from temp_orders.`);
-    }
+      for (const tempOrder of tempOrders) {
+        const { order_id, video_link, quantity, remaining } = tempOrder;
 
-    // Commit transaction
-    await db.queryAsync('COMMIT');
+        try {
+          if (remaining > 0) {
+            await connection.query(`
+              INSERT INTO orders (order_id, video_link, quantity, remaining) 
+              VALUES (?, ?, ?, ?)
+              ON DUPLICATE KEY UPDATE 
+                video_link = VALUES(video_link),
+                quantity = VALUES(quantity),
+                remaining = VALUES(remaining)
+            `, [order_id, video_link, quantity, remaining]);
+            console.log(`🔄 Order ${order_id} updated in orders table.`);
+          } else {
+            await connection.query(`
+              INSERT INTO complete_orders (order_id, video_link, quantity) 
+              VALUES (?, ?, ?)
+            `, [order_id, video_link, quantity]);
+            console.log(`✅ Order ${order_id} moved to complete_orders.`);
+          }
+
+          await connection.query('DELETE FROM temp_orders WHERE order_id = ?', [order_id]);
+          console.log(`🗑️ Order ${order_id} removed from temp_orders.`);
+
+        } catch (error) {
+          console.error(`❌ Error processing order ${order_id}:`, error);
+          // Continue with next order
+        }
+      }
+    });
   } catch (error) {
-    console.error("❌ Error processing temp_orders:", error);
-    await db.queryAsync('ROLLBACK'); // Rollback on failure
+    console.error("❌ Transaction Error:", error);
   } finally {
-    isProcessing = false; // Reset flag
+    isProcessing = false;
   }
-}, 60000); // Run every minute
+}
+
+// Run every minute
+setInterval(processTempOrders, 60000);
 
 
 //funtion use every 1houre
