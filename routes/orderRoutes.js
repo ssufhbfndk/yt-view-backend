@@ -7,89 +7,90 @@ router.get("/fetch-order/:username", async (req, res) => {
 
   // Validate username format
   if (!username.match(/^[a-zA-Z0-9_]+$/)) {
-    return res.status(400).json({ success: false, message: "Invalid username" });
+    return res.status(400).json({ 
+      success: false, 
+      message: "Invalid username format" 
+    });
   }
 
   const profileTable = `profile_${username}`;
 
   try {
-    // Get connection and start transaction
-    const connection = await new Promise((resolve, reject) => {
-      pool.getConnection((err, conn) => {
-        if (err) reject(err);
-        else resolve(conn);
-      });
-    });
-
-    await connection.beginTransaction();
-
-    try {
-      // Step 1: Get a random order not in user's profile j
-      const [orders] = await connection.query(`
-        SELECT o.* FROM orders o 
-        LEFT JOIN ${profileTable} p ON o.order_id = p.order_id 
-        WHERE p.order_id IS NULL 
-        ORDER BY RAND() 
+    const result = await db.executeTransaction(async (tx) => {
+      // 1. Get random available order
+      const [availableOrders] = await tx.query(`
+        SELECT o.* FROM orders o
+        WHERE NOT EXISTS (
+          SELECT 1 FROM ${profileTable} p 
+          WHERE p.order_id = o.order_id
+        )
+        ORDER BY RAND()
         LIMIT 1
+        FOR UPDATE
       `);
 
-      if (orders.length === 0) {
-        await connection.rollback();
-        connection.release();
-        return res.status(200).json({ success: false, message: "No new orders found" });
+      if (availableOrders.length === 0) {
+        throw { 
+          status: 200, 
+          message: "No new orders available",
+          isExpected: true 
+        };
       }
 
-      const randomOrder = orders[0];
+      const order = availableOrders[0];
 
-      // Step 2: Process order based on remaining count
-      if (randomOrder.remaining <= 1) {
-        await connection.query(
-          `INSERT INTO complete_orders (order_id, video_link, quantity) VALUES (?, ?, ?)`,
-          [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity]
-        );
+      // 2. Process based on remaining count
+      if (order.remaining <= 1) {
+        await tx.query(`
+          INSERT INTO complete_orders (order_id, video_link, quantity)
+          VALUES (?, ?, ?)
+        `, [order.order_id, order.video_link, order.quantity]);
       } else {
-        await connection.query(
-          `INSERT INTO temp_orders (order_id, video_link, quantity, remaining) VALUES (?, ?, ?, ?)`,
-          [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity, randomOrder.remaining - 1]
-        );
+        await tx.query(`
+          INSERT INTO temp_orders (order_id, video_link, quantity, remaining)
+          VALUES (?, ?, ?, ?)
+        `, [order.order_id, order.video_link, order.quantity, order.remaining - 1]);
       }
 
-      // Remove from orders table
-      await connection.query(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
+      // 3. Remove from main orders table
+      await tx.query(`
+        DELETE FROM orders WHERE order_id = ?
+      `, [order.order_id]);
 
-      // Step 3: Record in user's profile
-      await connection.query(
-        `INSERT INTO ${profileTable} (order_id) VALUES (?)`,
-        [randomOrder.order_id]
-      );
+      // 4. Record in user's profile
+      await tx.query(`
+        INSERT INTO ${profileTable} (order_id) 
+        VALUES (?)
+      `, [order.order_id]);
 
-      await connection.commit();
-      connection.release();
+      return order; // Return complete order data
+    });
 
-      return res.status(200).json({ 
-        success: true, 
-        order: {
-          ...randomOrder,
-          videoId: extractVideoId(randomOrder.video_link) // Extract clean video ID
-        } 
-      });
-
-    } catch (error) {
-      await connection.rollback();
-      connection.release();
-      throw error;
-    }
+    return res.status(200).json({
+      success: true,
+      order: result // Send full order object
+    });
 
   } catch (error) {
-    console.error("❌ Error processing order:", error);
-    return res.status(500).json({ 
-      success: false, 
-      message: "Internal Server Error",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    console.error("❌ Order processing error:", error.message);
+
+    if (error.isExpected) {
+      return res.status(error.status || 200).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to process order",
+      ...(process.env.NODE_ENV === 'development' && {
+        error: error.message,
+        stack: error.stack
+      })
     });
   }
 });
-
 
 router.post('/invalid-video', async (req, res) => {
   const { order_id, video_link } = req.body;
