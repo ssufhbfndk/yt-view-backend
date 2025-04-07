@@ -5,92 +5,69 @@ const db = require('../config/db');  // Assuming db.js is where your MySQL conne
 router.get("/fetch-order/:username", async (req, res) => {
   const { username } = req.params;
 
-  // Validate username format
   if (!username.match(/^[a-zA-Z0-9_]+$/)) {
-    return res.status(400).json({ 
-      success: false, 
-      message: "Invalid username format" 
-    });
+    return res.status(400).json({ success: false, message: "Invalid username" });
   }
+
 
   const profileTable = `profile_${username}`;
 
   try {
-    const result = await db.executeTransaction(async (tx) => {
-      // 1. Get random available order
-      const [availableOrders] = await tx.query(`
-        SELECT o.* FROM orders o
-        WHERE NOT EXISTS (
-          SELECT 1 FROM ${profileTable} p 
-          WHERE p.order_id = o.order_id
-        )
-        ORDER BY RAND()
-        LIMIT 1
-        FOR UPDATE
-      `);
+    const connection = await db.getConnection(); // ✅ Get connection for transaction
 
-      if (availableOrders.length === 0) {
-        throw { 
-          status: 200, 
-          message: "No new orders available",
-          isExpected: true 
-        };
-      }
+    await new Promise((resolve, reject) => connection.beginTransaction((err) => (err ? reject(err) : resolve())));
 
-      const order = availableOrders[0];
+    // ✅ Step 1: Get a random order that is **not in the user’s profile table**
+    const orders = await db.queryAsync(`
+      SELECT o.* FROM orders o 
+      LEFT JOIN ${profileTable} p ON o.order_id = p.order_id 
+      WHERE p.order_id IS NULL 
+      ORDER BY RAND() 
+      LIMIT 1
+    `);
 
-      // 2. Process based on remaining count
-      if (order.remaining <= 1) {
-        await tx.query(`
-          INSERT INTO complete_orders (order_id, video_link, quantity)
-          VALUES (?, ?, ?)
-        `, [order.order_id, order.video_link, order.quantity]);
-      } else {
-        await tx.query(`
-          INSERT INTO temp_orders (order_id, video_link, quantity, remaining)
-          VALUES (?, ?, ?, ?)
-        `, [order.order_id, order.video_link, order.quantity, order.remaining - 1]);
-      }
-
-      // 3. Remove from main orders table
-      await tx.query(`
-        DELETE FROM orders WHERE order_id = ?
-      `, [order.order_id]);
-
-      // 4. Record in user's profile
-      await tx.query(`
-        INSERT INTO ${profileTable} (order_id) 
-        VALUES (?)
-      `, [order.order_id]);
-
-      return order; // Return complete order data
-    });
-
-    return res.status(200).json({
-      success: true,
-      order: result // Send full order object
-    });
-
-  } catch (error) {
-    console.error("❌ Order processing error:", error.message);
-
-    if (error.isExpected) {
-      return res.status(error.status || 200).json({
-        success: false,
-        message: error.message
-      });
+    if (orders.length === 0) {
+      connection.release(); // ✅ Release connection
+      return res.status(200).json({ success: false, message: "No new orders found" });
     }
 
-    return res.status(500).json({
-      success: false,
-      message: "Failed to process order",
-      ...(process.env.NODE_ENV === 'development' && {
-        error: error.message,
-        stack: error.stack
-      })
-    });
+    const randomOrder = orders[0];
+
+    // ✅ Step 2: Process the order based on `remaining` count
+    if (randomOrder.remaining <= 1) {
+      await db.queryAsync(
+        `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) VALUES (?, ?, ?, NOW())`,
+        [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity]
+      );
+      await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
+    } else {
+      await db.queryAsync(
+        `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())`,
+        [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity, randomOrder.remaining - 1]
+      );
+      await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
+    }
+
+    // ✅ Step 3: Insert into user’s profile table
+    await db.queryAsync(`INSERT INTO ${profileTable} (order_id, timestamp) VALUES (?, NOW())`, [randomOrder.order_id]);
+
+    await new Promise((resolve, reject) => connection.commit((err) => (err ? reject(err) : resolve()))); // ✅ Commit transaction
+    connection.release(); // ✅ Release connection
+
+    res.status(200).json({ success: true, order: randomOrder });
+  } catch (error) {
+    console.error("❌ Error processing order:", error);
+
+    if (error.connection) {
+      await new Promise((resolve) => error.connection.rollback(() => resolve())); // ✅ Rollback transaction if error
+      error.connection.release(); // ✅ Release connection
+    }
+
+    res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 });
+
+
 
 router.post('/invalid-video', async (req, res) => {
   const { order_id, video_link } = req.body;
@@ -342,119 +319,74 @@ router.delete('/deleteOrderComplete/:id', async (req, res) => {
 ///////////////////////////////////////////////////////////////
 
 
-
-
-// Temp orders processor with robust error handling
+// Process orders every 1 minute
 let isProcessing = false;
-const PROCESSING_INTERVAL = 60000; // 1 minute
 
-async function processTempOrders() {
-  if (isProcessing) {
-    console.log('⏳ Processing already in progress. Skipping...');
-    return;
-  }
-
+setInterval(async () => {
+  if (isProcessing) return;
   isProcessing = true;
-  const startTime = Date.now();
-  let processedCount = 0;
-  let errorCount = 0;
+
+  console.log("⏳ Checking temp_orders for processing...");
+
+  let connection;
 
   try {
-    console.log('⏳ Starting temp orders processing...');
+    // Get a dedicated connection for transaction
+    connection = await db.getConnection();
+    await connection.beginTransaction();
 
-    await db.executeTransaction(async (tx) => {
-      // 1. Fetch eligible orders with proper error handling
-      let tempOrders = [];
-      try {
-        const result = await tx.query(`
-          SELECT * FROM temp_orders 
-          WHERE TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 60
-          ORDER BY timestamp ASC
-          LIMIT 100
-          FOR UPDATE
-        `);
-        tempOrders = Array.isArray(result[0]) ? result[0] : [];
-      } catch (fetchError) {
-        console.error('❌ Failed to fetch temp orders:', fetchError.message);
-        throw fetchError; // Re-throw to trigger transaction rollback
+    // Fetch orders older than 60 seconds with a lock
+    const [tempOrders] = await connection.query(`
+      SELECT * FROM temp_orders
+      WHERE TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 60
+      FOR UPDATE
+    `);
+
+    if (tempOrders.length === 0) {
+      console.log("✅ No temp orders to process.");
+      await connection.commit();
+      return;
+    }
+
+    for (const tempOrder of tempOrders) {
+      const { order_id, video_link, quantity, remaining } = tempOrder;
+
+      if (remaining > 0) {
+        await connection.query(`
+          INSERT INTO orders (order_id, video_link, quantity, remaining)
+          VALUES (?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE remaining = VALUES(remaining)
+        `, [order_id, video_link, quantity, remaining]);
+
+        console.log(`🔄 Order ${order_id} moved back to orders table.`);
+      } else {
+        await connection.query(`
+          INSERT INTO complete_orders (order_id, video_link, quantity, timestamp)
+          VALUES (?, ?, ?, NOW())
+        `, [order_id, video_link, quantity]);
+
+        console.log(`✅ Order ${order_id} moved to complete_orders.`);
       }
 
-      if (tempOrders.length === 0) {
-        console.log('✅ No temp orders to process.');
-        return;
-      }
+      // Delete from temp_orders
+      await connection.query(
+        `DELETE FROM temp_orders WHERE order_id = ?`,
+        [order_id]
+      );
+      console.log(`🗑️ Order ${order_id} removed from temp_orders.`);
+    }
 
-      // 2. Process each order with individual error handling
-      for (const order of tempOrders) {
-        try {
-          const { order_id, video_link, quantity, remaining } = order;
-          
-          if (remaining > 0) {
-            // Update orders table
-            await tx.query(`
-              INSERT INTO orders (order_id, video_link, quantity, remaining)
-              VALUES (?, ?, ?, ?)
-              ON DUPLICATE KEY UPDATE
-                remaining = VALUES(remaining),
-                last_updated = NOW()
-            `, [order_id, video_link, quantity, remaining]);
-          } else {
-            // Move to complete_orders
-            await tx.query(`
-              INSERT INTO complete_orders (order_id, video_link, quantity)
-              VALUES (?, ?, ?)
-            `, [order_id, video_link, quantity]);
-          }
-
-          // Remove from temp_orders
-          await tx.query(`
-            DELETE FROM temp_orders WHERE order_id = ?
-          `, [order_id]);
-
-          processedCount++;
-          console.log(`♻️ Processed order ${order_id} (${remaining} remaining)`);
-
-        } catch (orderError) {
-          errorCount++;
-          console.error(`❌ Failed to process order ${order.order_id}:`, orderError.message);
-          // Continue with next order
-        }
-      }
-    });
-
-    // Log processing summary
-    const duration = (Date.now() - startTime) / 1000;
-    console.log(`✅ Processing complete. 
-      Stats: ${processedCount} processed, ${errorCount} failed
-      Time: ${duration.toFixed(2)}s`);
-
-  } catch (mainError) {
-    console.error('❌ CRITICAL PROCESSING ERROR:', mainError.message);
-    // Here you could add notification logic (email, Slack, etc.)
-    
+    await connection.commit();
+    console.log("🎉 All eligible temp_orders processed successfully.");
+  } catch (error) {
+    console.error("❌ Error during temp_orders processing:", error);
+    if (connection) await connection.rollback();
   } finally {
+    if (connection) connection.release();
     isProcessing = false;
   }
-}
+}, 60000); // Every 1 minute
 
-// Robust processor starter with error handling
-function startOrderProcessor() {
-  const run = async () => {
-    try {
-      await processTempOrders();
-    } catch (e) {
-      console.error('Processor cycle error:', e.message);
-    } finally {
-      setTimeout(run, PROCESSING_INTERVAL);
-    }
-  };
-
-  // Start the first cycle
-  run().catch(e => console.error('Processor startup failed:', e.message));
-}
-
-// Start the processor
-startOrderProcessor();
 
 //funtion use every 1houre
 
