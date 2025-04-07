@@ -342,69 +342,117 @@ router.delete('/deleteOrderComplete/:id', async (req, res) => {
 
 
 
-// Temp orders processor
+// Temp orders processor with enhanced error handling and logging
 let isProcessing = false;
+let processingInterval = 60000; // 1 minute
 
 async function processTempOrders() {
-  if (isProcessing) return;
+  if (isProcessing) {
+    console.log('⏳ Processing already in progress. Skipping...');
+    return;
+  }
+  
   isProcessing = true;
+  const startTime = Date.now();
+  let processedCount = 0;
+  let errorCount = 0;
 
   try {
-    console.log("⏳ Checking temp_orders for processing...");
+    console.log('⏳ Starting temp orders processing...');
 
-    await db.executeTransaction(async (connection) => {
-      const [tempOrders] = await connection.query(`
+    await db.executeTransaction(async (tx) => {
+      // 1. Fetch eligible orders
+      const [tempOrders] = await tx.query(`
         SELECT * FROM temp_orders 
         WHERE TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 60
+        ORDER BY timestamp ASC
+        LIMIT 100
         FOR UPDATE
       `);
 
-      if (tempOrders.length === 0) {
-        console.log("✅ No temp orders to process.");
+      if (!tempOrders.length) {
+        console.log('✅ No temp orders to process.');
         return;
       }
 
-      for (const tempOrder of tempOrders) {
-        const { order_id, video_link, quantity, remaining } = tempOrder;
-
+      // 2. Process each order
+      for (const order of tempOrders) {
         try {
+          const { order_id, video_link, quantity, remaining } = order;
+          
           if (remaining > 0) {
-            await connection.query(`
-              INSERT INTO orders (order_id, video_link, quantity, remaining) 
+            // Update orders table
+            await tx.query(`
+              INSERT INTO orders (order_id, video_link, quantity, remaining)
               VALUES (?, ?, ?, ?)
-              ON DUPLICATE KEY UPDATE 
-                video_link = VALUES(video_link),
-                quantity = VALUES(quantity),
-                remaining = VALUES(remaining)
+              ON DUPLICATE KEY UPDATE
+                remaining = VALUES(remaining),
+                last_updated = NOW()
             `, [order_id, video_link, quantity, remaining]);
-            console.log(`🔄 Order ${order_id} updated in orders table.`);
           } else {
-            await connection.query(`
-              INSERT INTO complete_orders (order_id, video_link, quantity) 
+            // Move to complete_orders
+            await tx.query(`
+              INSERT INTO complete_orders (order_id, video_link, quantity)
               VALUES (?, ?, ?)
             `, [order_id, video_link, quantity]);
-            console.log(`✅ Order ${order_id} moved to complete_orders.`);
           }
 
-          await connection.query('DELETE FROM temp_orders WHERE order_id = ?', [order_id]);
-          console.log(`🗑️ Order ${order_id} removed from temp_orders.`);
+          // Remove from temp_orders
+          await tx.query(`
+            DELETE FROM temp_orders WHERE order_id = ?
+          `, [order_id]);
 
-        } catch (error) {
-          console.error(`❌ Error processing order ${order_id}:`, error);
+          processedCount++;
+          console.log(`♻️ Processed order ${order_id}`);
+
+        } catch (orderError) {
+          errorCount++;
+          console.error(`❌ Failed to process order ${order.order_id}:`, orderError.message);
           // Continue with next order
         }
       }
     });
-  } catch (error) {
-    console.error("❌ Transaction Error:", error);
+
+    // Log processing summary
+    const duration = (Date.now() - startTime) / 1000;
+    console.log(`✅ Processing complete. 
+      Orders: ${processedCount} processed, ${errorCount} failed
+      Duration: ${duration.toFixed(2)}s`);
+
+  } catch (mainError) {
+    console.error('❌ CRITICAL PROCESSING ERROR:', mainError.message);
+    // Implement your alert system here (email, Slack, etc.)
+    
   } finally {
     isProcessing = false;
+    
+    // Dynamic interval adjustment based on load
+    if (processedCount > 50) {
+      processingInterval = 30000; // 30s if heavy load
+    } else {
+      processingInterval = 60000; // 1m normal
+    }
   }
 }
 
-// Run every minute
-setInterval(processTempOrders, 60000);
+// Start processing with error handling
+function startOrderProcessor() {
+  async function run() {
+    try {
+      await processTempOrders();
+    } catch (e) {
+      console.error('Processor error:', e);
+    } finally {
+      setTimeout(run, processingInterval);
+    }
+  }
+  
+  // Initial start
+  run().catch(e => console.error('Failed to start processor:', e));
+}
 
+// Start the processor
+startOrderProcessor();
 
 //funtion use every 1houre
 
