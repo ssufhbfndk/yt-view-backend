@@ -191,118 +191,91 @@ router.post('/invalid-video', async (req, res) => {
 
 
 // Process data from frontend
+const axios = require('axios');
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
+
 router.post('/process', async (req, res) => {
   const { data } = req.body;
 
-  try {
-    const chunkSize = 3;
-    const chunks = [];
-    for (let i = 0; i < data.length; i += chunkSize) {
-      chunks.push(data.slice(i, i + chunkSize));
+  const chunkSize = 3;
+  const chunks = [];
+  for (let i = 0; i < data.length; i += chunkSize) {
+    chunks.push(data.slice(i, i + chunkSize));
+  }
+
+  let successCount = 0;
+  let errorCount = 0;
+  let invalidCount = 0;
+
+  const isYouTubeVideoLink = (url) => {
+    const regExp = /^(https?\:\/\/)?(www\.youtube\.com|youtu\.be)\/(watch\?v=|embed\/)?([a-zA-Z0-9_-]{11})/;
+    return regExp.test(url);
+  };
+
+  const getYouTubeVideoId = (url) => {
+    const match = url.match(/[?&]v=([^&#]*)|youtu\.be\/([^&#]*)|embed\/([^&#]*)/);
+    return match ? match[1] || match[2] || match[3] : null;
+  };
+
+  const isValidYouTubeVideo = async (videoId) => {
+    const url = `https://www.googleapis.com/youtube/v3/videos?part=status&id=${videoId}&key=${YOUTUBE_API_KEY}`;
+    try {
+      const response = await axios.get(url);
+      const item = response.data.items[0];
+      if (!item) return false;
+      const status = item.status;
+      return status.embeddable && status.privacyStatus === 'public';
+    } catch (err) {
+      console.error('YouTube API error:', err.message);
+      return false;
     }
+  };
 
-    let successCount = 0;
-    let errorCount = 0;
-
+  try {
     for (const chunk of chunks) {
       const [orderId, videoLink, quantity] = chunk;
-
       const originalQuantity = parseInt(quantity);
       const additional = Math.ceil(originalQuantity * 0.15);
       const remaining = originalQuantity + additional;
 
-      // Check if orderId or videoLink exists
+      // Check duplicate in DB
       const checkQuery = 'SELECT * FROM orders WHERE order_id = ? OR video_link = ?';
       const existingOrders = await db.queryAsync(checkQuery, [orderId, videoLink]);
 
       if (existingOrders.length > 0) {
-        // If exists, insert into error table
-        const errorQuery =
-          'INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())';
+        const errorQuery = 'INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())';
         await db.queryAsync(errorQuery, [orderId, videoLink, originalQuantity, remaining]);
         errorCount++;
-      } else {
-        // If not exists, insert into orders table
-        const orderQuery =
-          'INSERT INTO orders (order_id, video_link, quantity, remaining) VALUES (?, ?, ?, ?)';
-        await db.queryAsync(orderQuery, [orderId, videoLink, originalQuantity, remaining]);
-        successCount++;
+        continue;
       }
+
+      // Check if YouTube link is valid
+      if (!isYouTubeVideoLink(videoLink)) {
+        const errorQuery = 'INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())';
+        await db.queryAsync(errorQuery, [orderId, videoLink, originalQuantity, remaining]);
+        errorCount++;
+        continue;
+      }
+
+      const videoId = getYouTubeVideoId(videoLink);
+      const validVideo = await isValidYouTubeVideo(videoId);
+
+      if (!validVideo) {
+        const invalidQuery = 'INSERT INTO invalid_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())';
+        await db.queryAsync(invalidQuery, [orderId, videoLink, originalQuantity, remaining]);
+        invalidCount++;
+        continue;
+      }
+
+      const insertQuery = 'INSERT INTO orders (order_id, video_link, quantity, remaining) VALUES (?, ?, ?, ?)';
+      await db.queryAsync(insertQuery, [orderId, videoLink, originalQuantity, remaining]);
+      successCount++;
     }
 
-    res.json({ success: true, inserted: successCount, errors: errorCount });
+    res.json({ success: true, inserted: successCount, errors: errorCount, invalid: invalidCount });
   } catch (err) {
     console.error("Error processing orders:", err);
     res.status(500).json({ message: 'Server error' });
-  }
-});
-
-
-
-// Get orders from both 'orders' and 'temp_orders' tables
-router.get('/ordersData', async (req, res) => {
-  try {
-    // Query to get orders from the 'orders' table
-    const ordersQuery = 'SELECT order_id, video_link, quantity, remaining, "orders" AS tableName FROM orders';
-    const tempOrdersQuery = 'SELECT order_id, video_link, quantity, remaining, "temp_orders" AS tableName FROM temp_orders';
-
-    // Execute both queries
-    db.queryAsync(ordersQuery + ' UNION ' + tempOrdersQuery, (err, result) => {
-      if (err) {
-        return res.status(500).json({ message: 'Error fetching orders from database' });
-      }
-      res.json({ orders: result });
-    });
-  } catch (err) {
-    return res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// routes/orders.js
-// Delete order from 'orders' or 'temp_orders' table
-router.delete('/ordersData/:orderId', async (req, res) => {
-  const { orderId } = req.params;
-
-  try {
-    // Check both tables for the order
-    const [orderResult] = await db.queryAsync(
-      'SELECT "orders" AS tableName FROM orders WHERE order_id = ? UNION SELECT "temp_orders" AS tableName FROM temp_orders WHERE order_id = ?',
-      [orderId, orderId]
-    );
-
-    // Ensure orderResult is valid and not empty
-    if (!orderResult || orderResult.length === 0) {
-      return res.status(404).json({ message: 'Order not found in either table' });
-    }
-
-    const tableToDelete = orderResult.tableName; // Use orderResult[0] directly
-    if (!tableToDelete) {
-      return res.status(500).json({ message: 'Table name could not be determined' });
-    }
-
-    // Delete from the found table
-    await db.queryAsync(`DELETE FROM ${tableToDelete} WHERE order_id = ?`, [orderId]);
-
-    res.json({ success: true, message: `Order deleted from ${tableToDelete}` });
-  } catch (err) {
-    console.error("Error deleting order:", err);
-    res.status(500).json({ message: 'Failed to delete order' });
-  }
-});
-
-
-// Get orders from 'complete_orders' table
-router.get('/ordersComplete', async (req, res) => {
-  try {
-    const query = 'SELECT * FROM complete_orders ORDER BY timestamp DESC';
-    db.queryAsync(query, (err, result) => {
-      if (err) {
-        return res.status(500).json({ message: 'Error fetching completed orders' });
-      }
-      res.json({ orders: result });
-    });
-  } catch (err) {
-    return res.status(500).json({ message: 'Server error' });
   }
 });
 
