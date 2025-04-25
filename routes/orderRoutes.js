@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');  // Assuming db.js is where your MySQL connection is set up
 
+// Process data from frontend
+const axios = require('axios');
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
+
 router.get("/fetch-order/:username", async (req, res) => {
   const { username } = req.params;
 
@@ -187,12 +191,6 @@ router.post('/invalid-video', async (req, res) => {
   }
 });
 
-
-
-
-// Process data from frontend
-const axios = require('axios');
-const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
 
 router.post('/process', async (req, res) => {
   const { data } = req.body;
