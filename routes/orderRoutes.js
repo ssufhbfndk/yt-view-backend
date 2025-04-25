@@ -278,6 +278,66 @@ router.post('/process', async (req, res) => {
 });
 
 
+// Get orders from both 'orders' and 'temp_orders' tables
+router.get('/ordersData', async (req, res) => {
+  try {
+    // Query to get orders from the 'orders' table
+    const ordersQuery = 'SELECT order_id, video_link, quantity, remaining, "orders" AS tableName FROM orders';
+    const tempOrdersQuery = 'SELECT order_id, video_link, quantity, remaining, "temp_orders" AS tableName FROM temp_orders';
+
+    // Execute both queries
+    db.query(ordersQuery + ' UNION ' + tempOrdersQuery, (err, result) => {
+      if (err) {
+        return res.status(500).json({ message: 'Error fetching orders from database' });
+      }
+      res.json({ orders: result });
+    });
+  } catch (err) {
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// routes/orders.js
+// Delete order from 'orders' or 'temp_orders' table
+router.delete('/ordersData/:orderId', async (req, res) => {
+  const { orderId } = req.params;
+  const { table } = req.body; // The table to delete from ('orders' or 'temp_orders')
+
+  if (!table || (table !== 'orders' && table !== 'temp_orders')) {
+    return res.status(400).json({ message: 'Invalid table specified' });
+  }
+
+  try {
+    const deleteQuery = `DELETE FROM ${table} WHERE order_id = ?`;
+
+    db.query(deleteQuery, [orderId], (err, result) => {
+      if (err) {
+        return res.status(500).json({ message: 'Failed to delete order' });
+      }
+      res.json({ success: true });
+    });
+  } catch (err) {
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get orders from 'complete_orders' table
+router.get('/ordersComplete', async (req, res) => {
+  try {
+    const query = 'SELECT * FROM complete_orders ORDER BY timestamp DESC';
+    db.query(query, (err, result) => {
+      if (err) {
+        return res.status(500).json({ message: 'Error fetching completed orders' });
+      }
+      res.json({ orders: result });
+    });
+  } catch (err) {
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+
+
 // Delete order from 'complete_orders' table
 router.delete('/deleteOrderComplete/:id', async (req, res) => {
   const { id } = req.params;
@@ -296,6 +356,8 @@ router.delete('/deleteOrderComplete/:id', async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
+
 
 ///////////////////////////////////////////////////////////////
 
