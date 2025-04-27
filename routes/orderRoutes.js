@@ -82,166 +82,75 @@ router.get("/fetch-order/:username", async (req, res) => {
 });
 
 
+//order save tu db
 
-router.post('/invalid-video', async (req, res) => {
-  const { order_id, video_link } = req.body;
 
-  console.log("📌 Received request to mark video as invalid:", { order_id, video_link });
-
-  if (!order_id || !video_link) {
-    console.log("❌ Missing order_id or video_link");
-    return res.status(400).json({ success: false, message: "Missing order_id or video_link" });
-  }
-
-  let connection;
+// Helper: YouTube ID extractor
+const getYouTubeVideoId = (url) => {
   try {
-    connection = await db.getConnection(); // ✅ Get a connection from the pool
-    
-
-    await new Promise((resolve, reject) => connection.beginTransaction(err => err ? reject(err) : resolve()));
-   
-
-    // Step 1: Check if the order exists in `orders`
-    const orderFromOrders = await new Promise((resolve, reject) => {
-      connection.query(
-        `SELECT order_id, video_link, quantity FROM orders WHERE order_id = ? OR video_link = ? LIMIT 1`,
-        [order_id, video_link],
-        (err, results) => (err ? reject(err) : resolve(results))
-      );
-    });
-
-    // Step 2: Check if the order exists in `temp_orders`
-    const orderFromTemp = await new Promise((resolve, reject) => {
-      connection.query(
-        `SELECT order_id, video_link, quantity FROM temp_orders WHERE order_id = ? OR video_link = ? LIMIT 1`,
-        [order_id, video_link],
-        (err, results) => (err ? reject(err) : resolve(results))
-      );
-    });
-
-    let orderDetails = null;
-    let tableToDelete = null;
-
-    if (orderFromOrders.length > 0 && orderFromTemp.length > 0) {
-      console.log("⚠️ Order found in both tables! This should not happen.");
-      await new Promise((resolve, reject) => connection.rollback(err => err ? reject(err) : resolve()));
-      connection.release();
-      return res.status(500).json({ success: false, message: "Data inconsistency: order exists in both tables." });
-    } else if (orderFromOrders.length > 0) {
-      orderDetails = orderFromOrders[0];
-      tableToDelete = "orders";
-    } else if (orderFromTemp.length > 0) {
-      orderDetails = orderFromTemp[0];
-      tableToDelete = "temp_orders";
-    } else {
-      console.log("⚠️ Order not found in orders or temp_orders");
-      await new Promise((resolve, reject) => connection.rollback(err => err ? reject(err) : resolve()));
-      connection.release();
-      return res.status(404).json({ success: false, message: "Order not found" });
+    const parsedUrl = new URL(url);
+    if (parsedUrl.hostname.includes('youtu.be')) {
+      return parsedUrl.pathname.slice(1);
     }
-
-    
-
-    // Step 3: Delete from the correct table
-    await new Promise((resolve, reject) => {
-      connection.query(
-        `DELETE FROM ${tableToDelete} WHERE order_id = ? OR video_link = ?`,
-        [order_id, video_link],
-        (err, results) => (err ? reject(err) : resolve(results))
-      );
-    });
-
-    
-
-    // Step 4: Move to `invalid_videos` table
-    await new Promise((resolve, reject) => {
-      connection.query(
-        `INSERT INTO invalid_videos (order_id, video_link, quantity, error_type, timestamp) VALUES (?, ?, ?, ?, NOW())`,
-        [orderDetails.order_id, orderDetails.video_link, orderDetails.quantity, "unavailable"],
-        (err, results) => (err ? reject(err) : resolve(results))
-      );
-    });
-
-
-
-    await new Promise((resolve, reject) => connection.commit(err => err ? reject(err) : resolve()));
-   
-
-    connection.release();
-
-    res.status(200).json({
-      success: true,
-      message: "Order marked as invalid and moved to invalid_videos table",
-      data: {
-        order_id: orderDetails.order_id,
-        video_link: orderDetails.video_link,
-        quantity: orderDetails.quantity,
-        error_type: "unavailable",
-      },
-    });
-  } catch (error) {
-    console.error("❌ Error processing invalid video:", error);
-
-    if (connection) {
-      await new Promise((resolve, reject) => connection.rollback(err => err ? reject(err) : resolve()));
-      connection.release();
+    if (parsedUrl.hostname.includes('youtube.com')) {
+      return parsedUrl.searchParams.get('v');
     }
-
-    res.status(500).json({ success: false, message: "Internal server error", error: error.message });
+    return null;
+  } catch (e) {
+    return null;
   }
-});
+};
+
+// Helper: Validate with YouTube API
+const isValidYouTubeVideo = async (videoId) => {
+  const url = `https://www.googleapis.com/youtube/v3/videos?part=status,player,snippet&id=${videoId}&key=${YOUTUBE_API_KEY}`;
+  try {
+    const response = await axios.get(url);
+    const item = response.data.items[0];
+    if (!item) {
+      return { valid: false, reason: 'Video not found' };
+    }
+
+    const { status, player, snippet } = item;
+
+    // Check embeddable
+    if (!status.embeddable) {
+      return { valid: false, reason: 'Video not embeddable' };
+    }
+
+    // Check privacy public hai
+    if (status.privacyStatus !== 'public') {
+      return { valid: false, reason: `Video privacy: ${status.privacyStatus}` };
+    }
+
+    // Check player HTML se "Video unavailable" na ho
+    if (player.embedHtml.includes('Video unavailable')) {
+      return { valid: false, reason: 'Embed shows video unavailable' };
+    }
+
+    // Check agar video currently live hai
+    if (snippet.liveBroadcastContent === 'live') {
+      return { valid: false, reason: 'Currently Live Video not allowed' };
+    }
+
+    // Sab pass ho gaya
+    return { valid: true };
+  } catch (err) {
+    console.error('YouTube API error:', err.response?.data || err.message);
+    return { valid: false, reason: err.response?.data?.error?.message || err.message };
+  }
+};
 
 
+// API 1 - Receive Data from user and Save to pending_orders
 router.post('/process', async (req, res) => {
   const { data } = req.body;
-
   const chunkSize = 3;
   const chunks = [];
-  
-  // String ko slice karke arrays banao
+
   for (let i = 0; i < data.length; i += chunkSize) {
     chunks.push(data.slice(i, i + chunkSize));
   }
-
-  let successCount = 0;
-  let errorCount = 0;
-  let invalidCount = 0;
-
-  // Check kya link YouTube ka hai
-  const isYouTubeVideoLink = (url) => {
-    const regExp = /^(https?:\/\/)?(www\.youtube\.com|youtu\.be)\/(watch\?v=|embed\/)?([a-zA-Z0-9_-]{11})/;
-    return regExp.test(url);
-  };
-
-  // YouTube se Video ID nikaalo
-  const getYouTubeVideoId = (url) => {
-    const match = url.match(/[?&]v=([^&#]*)|youtu\.be\/([^&#]*)|embed\/([^&#]*)/);
-    return match ? match[1] || match[2] || match[3] : null;
-  };
-
-  // YouTube API validation, aur error_reason nikalna
-  const isValidYouTubeVideo = async (videoId) => {
-    const url = `https://www.googleapis.com/youtube/v3/videos?part=status&id=${videoId}&key=${YOUTUBE_API_KEY}`;
-    try {
-      const response = await axios.get(url);
-      const item = response.data.items[0];
-      if (!item) {
-        return { valid: false, reason: 'Video not found' };
-      }
-      const status = item.status;
-      if (status.embeddable && status.privacyStatus === 'public') {
-        return { valid: true };
-      } else {
-        let reason = '';
-        if (!status.embeddable) reason += 'Not embeddable. ';
-        if (status.privacyStatus !== 'public') reason += `Privacy: ${status.privacyStatus}.`;
-        return { valid: false, reason: reason.trim() };
-      }
-    } catch (err) {
-      console.error('YouTube API error:', err.message);
-      return { valid: false, reason: err.response?.data?.error?.message || err.message };
-    }
-  };
 
   try {
     for (const chunk of chunks) {
@@ -250,70 +159,121 @@ router.post('/process', async (req, res) => {
       const additional = Math.ceil(originalQuantity * 0.15);
       const remaining = originalQuantity + additional;
 
-      // Step 1: Check kya valid YouTube link hai
-      if (!isYouTubeVideoLink(videoLink)) {
-        const errorQuery = `
-          INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp)
-          VALUES (?, ?, ?, ?, NOW())
-        `;
-        await db.queryAsync(errorQuery, [orderId, videoLink, originalQuantity, remaining]);
-        errorCount++;
-        continue;
-      }
-
-      // Step 2: Check kya already orders ya temp_orders me hai
-      const checkQuery = `
-        SELECT * FROM orders WHERE order_id = ? OR video_link = ?
-        UNION
-        SELECT * FROM temp_orders WHERE order_id = ? OR video_link = ?
-      `;
-      const existingOrders = await db.queryAsync(checkQuery, [orderId, videoLink, orderId, videoLink]);
-
-      if (existingOrders.length > 0) {
-        const errorQuery = `
-          INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp)
-          VALUES (?, ?, ?, ?, NOW())
-        `;
-        await db.queryAsync(errorQuery, [orderId, videoLink, originalQuantity, remaining]);
-        errorCount++;
-        continue;
-      }
-
-      // Step 3: Check YouTube API se video valid hai
-      const videoId = getYouTubeVideoId(videoLink);
-      const { valid, reason } = await isValidYouTubeVideo(videoId);
-
-      if (!valid) {
-        const invalidQuery = `
-          INSERT INTO invalid_orders (order_id, video_link, quantity, remaining, error_reason, timestamp)
-          VALUES (?, ?, ?, ?, ?, NOW())
-        `;
-        await db.queryAsync(invalidQuery, [orderId, videoLink, originalQuantity, remaining, reason]);
-        invalidCount++;
-        continue;
-      }
-
-      // Step 4: Sab pass, to insert karo orders table me
-      const insertQuery = `
-        INSERT INTO orders (order_id, video_link, quantity, remaining)
+      const insertPending = `
+        INSERT INTO pending_orders (order_id, video_link, quantity, remaining)
         VALUES (?, ?, ?, ?)
       `;
-      await db.queryAsync(insertQuery, [orderId, videoLink, originalQuantity, remaining]);
-      successCount++;
+      await db.queryAsync(insertPending, [orderId, videoLink, originalQuantity, remaining]);
     }
 
-    res.json({
-      success: true,
-      inserted: successCount,
-      errors: errorCount,
-      invalid: invalidCount
-    });
+    res.json({ success: true, message: 'Data saved to pending_orders, will be processed shortly.' });
 
   } catch (err) {
-    console.error("Server Error while processing orders:", err);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error saving to pending_orders:', err);
+    res.status(500).json({ success: false, message: 'Server Error' });
   }
 });
+
+// Background Function - Process pending orders
+async function processPendingOrders() {
+  const connection = await db.getConnection(); // Start a manual connection for transactions
+
+  try {
+    const [pending] = await connection.query('SELECT * FROM pending_orders ORDER BY id ASC');
+
+    if (pending.length === 0) {
+      console.log('No pending orders found.');
+      connection.release();
+      return;
+    }
+
+    console.log(`Found ${pending.length} pending orders. Processing...`);
+
+    for (const order of pending) {
+      const { id, order_id, video_link, quantity, remaining } = order;
+
+      try {
+        await connection.beginTransaction(); // Safe transaction start
+
+        const videoId = getYouTubeVideoId(video_link);
+
+        if (!videoId) {
+          await connection.query(`
+            INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp)
+            VALUES (?, ?, ?, ?, NOW())
+          `, [order_id, video_link, quantity, remaining]);
+
+          await connection.query('DELETE FROM pending_orders WHERE id = ?', [id]);
+          console.log(`Invalid YouTube link format: ${video_link}`);
+
+          await connection.commit();
+          continue;
+        }
+
+        const [existing] = await connection.query(`
+          SELECT order_id FROM orders WHERE order_id = ? OR video_link = ?
+          UNION
+          SELECT order_id FROM temp_orders WHERE order_id = ? OR video_link = ?
+        `, [order_id, video_link, order_id, video_link]);
+
+        if (existing.length > 0) {
+          await connection.query(`
+            INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp)
+            VALUES (?, ?, ?, ?, NOW())
+          `, [order_id, video_link, quantity, remaining]);
+
+          await connection.query('DELETE FROM pending_orders WHERE id = ?', [id]);
+          console.log(`Duplicate entry found for: ${order_id}`);
+
+          await connection.commit();
+          continue;
+        }
+
+        const { valid, reason } = await isValidYouTubeVideo(videoId);
+
+        if (!valid) {
+          await connection.query(`
+            INSERT INTO invalid_orders (order_id, video_link, quantity, remaining, error_reason, timestamp)
+            VALUES (?, ?, ?, ?, ?, NOW())
+          `, [order_id, video_link, quantity, remaining, reason]);
+
+          await connection.query('DELETE FROM pending_orders WHERE id = ?', [id]);
+          console.log(`Invalid YouTube Video: ${video_link} - ${reason}`);
+
+          await connection.commit();
+          continue;
+        }
+
+        await connection.query(`
+          INSERT INTO orders (order_id, video_link, quantity, remaining)
+          VALUES (?, ?, ?, ?)
+        `, [order_id, video_link, quantity, remaining]);
+
+        await connection.query('DELETE FROM pending_orders WHERE id = ?', [id]);
+        console.log(`Order inserted successfully: ${order_id}`);
+
+        await connection.commit();
+      } catch (singleError) {
+        console.error(`Failed to process order ${order_id}:`, singleError);
+        await connection.rollback(); // If anything fails, rollback safely
+      }
+    }
+
+  } catch (err) {
+    console.error('Error fetching pending orders:', err);
+  } finally {
+    connection.release(); // Always release connection
+  }
+}
+
+// Auto-run every 5 minutes
+setInterval(processPendingOrders, 300000);
+
+
+
+
+//////////////////////
+
 
 
 
