@@ -190,7 +190,7 @@ router.post('/process', async (req, res) => {
 const processPendingOrders = async () => {
   try {
     // Step 1 - Copy full pending_orders data
-    const [pending] = await db.queryAsync('SELECT * FROM pending_orders ORDER BY id ASC');
+    const pending = await db.queryAsync('SELECT * FROM pending_orders ORDER BY id ASC');
 
     // Debugging: Log the result of the query
     console.log('Pending orders fetched:', pending);
@@ -268,7 +268,8 @@ const processPendingOrders = async () => {
 };
 
 // Auto-run pending orders every 5 min
-setInterval(processPendingOrders, 300000);
+setInterval(processPendingOrders, 30000);
+
 
 
 
