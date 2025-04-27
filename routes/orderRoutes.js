@@ -197,6 +197,8 @@ router.post('/process', async (req, res) => {
 
   const chunkSize = 3;
   const chunks = [];
+  
+  // String ko slice karke arrays banao
   for (let i = 0; i < data.length; i += chunkSize) {
     chunks.push(data.slice(i, i + chunkSize));
   }
@@ -205,27 +207,39 @@ router.post('/process', async (req, res) => {
   let errorCount = 0;
   let invalidCount = 0;
 
+  // Check kya link YouTube ka hai
   const isYouTubeVideoLink = (url) => {
-    const regExp = /^(https?\:\/\/)?(www\.youtube\.com|youtu\.be)\/(watch\?v=|embed\/)?([a-zA-Z0-9_-]{11})/;
+    const regExp = /^(https?:\/\/)?(www\.youtube\.com|youtu\.be)\/(watch\?v=|embed\/)?([a-zA-Z0-9_-]{11})/;
     return regExp.test(url);
   };
 
+  // YouTube se Video ID nikaalo
   const getYouTubeVideoId = (url) => {
     const match = url.match(/[?&]v=([^&#]*)|youtu\.be\/([^&#]*)|embed\/([^&#]*)/);
     return match ? match[1] || match[2] || match[3] : null;
   };
 
+  // YouTube API validation, aur error_reason nikalna
   const isValidYouTubeVideo = async (videoId) => {
     const url = `https://www.googleapis.com/youtube/v3/videos?part=status&id=${videoId}&key=${YOUTUBE_API_KEY}`;
     try {
       const response = await axios.get(url);
       const item = response.data.items[0];
-      if (!item) return false;
+      if (!item) {
+        return { valid: false, reason: 'Video not found' };
+      }
       const status = item.status;
-      return status.embeddable && status.privacyStatus === 'public';
+      if (status.embeddable && status.privacyStatus === 'public') {
+        return { valid: true };
+      } else {
+        let reason = '';
+        if (!status.embeddable) reason += 'Not embeddable. ';
+        if (status.privacyStatus !== 'public') reason += `Privacy: ${status.privacyStatus}.`;
+        return { valid: false, reason: reason.trim() };
+      }
     } catch (err) {
       console.error('YouTube API error:', err.message);
-      return false;
+      return { valid: false, reason: err.response?.data?.error?.message || err.message };
     }
   };
 
@@ -236,46 +250,71 @@ router.post('/process', async (req, res) => {
       const additional = Math.ceil(originalQuantity * 0.15);
       const remaining = originalQuantity + additional;
 
-      // Check duplicate in DB
-      const checkQuery = 'SELECT * FROM orders WHERE order_id = ? OR video_link = ?';
-      const existingOrders = await db.queryAsync(checkQuery, [orderId, videoLink]);
+      // Step 1: Check kya valid YouTube link hai
+      if (!isYouTubeVideoLink(videoLink)) {
+        const errorQuery = `
+          INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp)
+          VALUES (?, ?, ?, ?, NOW())
+        `;
+        await db.queryAsync(errorQuery, [orderId, videoLink, originalQuantity, remaining]);
+        errorCount++;
+        continue;
+      }
+
+      // Step 2: Check kya already orders ya temp_orders me hai
+      const checkQuery = `
+        SELECT * FROM orders WHERE order_id = ? OR video_link = ?
+        UNION
+        SELECT * FROM temp_orders WHERE order_id = ? OR video_link = ?
+      `;
+      const existingOrders = await db.queryAsync(checkQuery, [orderId, videoLink, orderId, videoLink]);
 
       if (existingOrders.length > 0) {
-        const errorQuery = 'INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())';
+        const errorQuery = `
+          INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp)
+          VALUES (?, ?, ?, ?, NOW())
+        `;
         await db.queryAsync(errorQuery, [orderId, videoLink, originalQuantity, remaining]);
         errorCount++;
         continue;
       }
 
-      // Check if YouTube link is valid
-      if (!isYouTubeVideoLink(videoLink)) {
-        const errorQuery = 'INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())';
-        await db.queryAsync(errorQuery, [orderId, videoLink, originalQuantity, remaining]);
-        errorCount++;
-        continue;
-      }
-
+      // Step 3: Check YouTube API se video valid hai
       const videoId = getYouTubeVideoId(videoLink);
-      const validVideo = await isValidYouTubeVideo(videoId);
+      const { valid, reason } = await isValidYouTubeVideo(videoId);
 
-      if (!validVideo) {
-        const invalidQuery = 'INSERT INTO invalid_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())';
-        await db.queryAsync(invalidQuery, [orderId, videoLink, originalQuantity, remaining]);
+      if (!valid) {
+        const invalidQuery = `
+          INSERT INTO invalid_orders (order_id, video_link, quantity, remaining, error_reason, timestamp)
+          VALUES (?, ?, ?, ?, ?, NOW())
+        `;
+        await db.queryAsync(invalidQuery, [orderId, videoLink, originalQuantity, remaining, reason]);
         invalidCount++;
         continue;
       }
 
-      const insertQuery = 'INSERT INTO orders (order_id, video_link, quantity, remaining) VALUES (?, ?, ?, ?)';
+      // Step 4: Sab pass, to insert karo orders table me
+      const insertQuery = `
+        INSERT INTO orders (order_id, video_link, quantity, remaining)
+        VALUES (?, ?, ?, ?)
+      `;
       await db.queryAsync(insertQuery, [orderId, videoLink, originalQuantity, remaining]);
       successCount++;
     }
 
-    res.json({ success: true, inserted: successCount, errors: errorCount, invalid: invalidCount });
+    res.json({
+      success: true,
+      inserted: successCount,
+      errors: errorCount,
+      invalid: invalidCount
+    });
+
   } catch (err) {
-    console.error("Error processing orders:", err);
+    console.error("Server Error while processing orders:", err);
     res.status(500).json({ message: 'Server error' });
   }
 });
+
 
 
 // Get orders from both 'orders' and 'temp_orders' tables
