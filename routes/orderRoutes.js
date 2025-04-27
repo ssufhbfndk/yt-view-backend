@@ -192,6 +192,14 @@ const processPendingOrders = async () => {
     // Step 1 - Copy full pending_orders data
     const [pending] = await db.queryAsync('SELECT * FROM pending_orders ORDER BY id ASC');
 
+    // Debugging: Log the result of the query
+    console.log('Pending orders fetched:', pending);
+
+    if (!Array.isArray(pending)) {
+      console.error('Error: Expected an array of pending orders, but received:', pending);
+      return;
+    }
+
     if (pending.length === 0) {
       console.log('No pending orders found.');
       return;
@@ -257,7 +265,7 @@ const processPendingOrders = async () => {
   } catch (err) {
     console.error('Error processing pending orders:', err);
   }
-}
+};
 
 // Auto-run pending orders every 5 min
 setInterval(processPendingOrders, 300000);
