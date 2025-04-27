@@ -145,9 +145,16 @@ const isValidYouTubeVideo = async (videoId) => {
 // API 1 - Receive Data from user and Save to pending_orders
 router.post('/process', async (req, res) => {
   const { data } = req.body;
+
+  // Validate data to make sure it's not empty or malformed
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    return res.status(400).json({ success: false, message: 'Invalid data format' });
+  }
+
   const chunkSize = 3;
   const chunks = [];
 
+  // Chunking the data for batch processing
   for (let i = 0; i < data.length; i += chunkSize) {
     chunks.push(data.slice(i, i + chunkSize));
   }
@@ -163,27 +170,30 @@ router.post('/process', async (req, res) => {
         INSERT INTO pending_orders (order_id, video_link, quantity, remaining)
         VALUES (?, ?, ?, ?)
       `;
+
+      // Awaiting db insertion for each chunk
       await db.queryAsync(insertPending, [orderId, videoLink, originalQuantity, remaining]);
     }
 
+    // If everything succeeds, send success response
     res.json({ success: true, message: 'Data saved to pending_orders, will be processed shortly.' });
 
   } catch (err) {
+    // Handling errors if the DB operation fails
     console.error('Error saving to pending_orders:', err);
     res.status(500).json({ success: false, message: 'Server Error' });
   }
 });
 
-// Background Function - Process pending orders
-async function processPendingOrders() {
-  const connection = await db.getConnection(); // Start a manual connection for transactions
 
+// Background Function - Process pending orders
+const processPendingOrders = async () => {
   try {
-    const [pending] = await connection.query('SELECT * FROM pending_orders ORDER BY id ASC');
+    // Step 1 - Copy full pending_orders data
+    const [pending] = await db.queryAsync('SELECT * FROM pending_orders ORDER BY id ASC');
 
     if (pending.length === 0) {
       console.log('No pending orders found.');
-      connection.release();
       return;
     }
 
@@ -192,82 +202,66 @@ async function processPendingOrders() {
     for (const order of pending) {
       const { id, order_id, video_link, quantity, remaining } = order;
 
-      try {
-        await connection.beginTransaction(); // Safe transaction start
+      // Step 2 - Basic YouTube URL check
+      const videoId = getYouTubeVideoId(video_link);
 
-        const videoId = getYouTubeVideoId(video_link);
-
-        if (!videoId) {
-          await connection.query(`
-            INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp)
-            VALUES (?, ?, ?, ?, NOW())
-          `, [order_id, video_link, quantity, remaining]);
-
-          await connection.query('DELETE FROM pending_orders WHERE id = ?', [id]);
-          console.log(`Invalid YouTube link format: ${video_link}`);
-
-          await connection.commit();
-          continue;
-        }
-
-        const [existing] = await connection.query(`
-          SELECT order_id FROM orders WHERE order_id = ? OR video_link = ?
-          UNION
-          SELECT order_id FROM temp_orders WHERE order_id = ? OR video_link = ?
-        `, [order_id, video_link, order_id, video_link]);
-
-        if (existing.length > 0) {
-          await connection.query(`
-            INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp)
-            VALUES (?, ?, ?, ?, NOW())
-          `, [order_id, video_link, quantity, remaining]);
-
-          await connection.query('DELETE FROM pending_orders WHERE id = ?', [id]);
-          console.log(`Duplicate entry found for: ${order_id}`);
-
-          await connection.commit();
-          continue;
-        }
-
-        const { valid, reason } = await isValidYouTubeVideo(videoId);
-
-        if (!valid) {
-          await connection.query(`
-            INSERT INTO invalid_orders (order_id, video_link, quantity, remaining, error_reason, timestamp)
-            VALUES (?, ?, ?, ?, ?, NOW())
-          `, [order_id, video_link, quantity, remaining, reason]);
-
-          await connection.query('DELETE FROM pending_orders WHERE id = ?', [id]);
-          console.log(`Invalid YouTube Video: ${video_link} - ${reason}`);
-
-          await connection.commit();
-          continue;
-        }
-
-        await connection.query(`
-          INSERT INTO orders (order_id, video_link, quantity, remaining)
-          VALUES (?, ?, ?, ?)
+      if (!videoId) {
+        await db.queryAsync(`
+          INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp)
+          VALUES (?, ?, ?, ?, NOW())
         `, [order_id, video_link, quantity, remaining]);
-
-        await connection.query('DELETE FROM pending_orders WHERE id = ?', [id]);
-        console.log(`Order inserted successfully: ${order_id}`);
-
-        await connection.commit();
-      } catch (singleError) {
-        console.error(`Failed to process order ${order_id}:`, singleError);
-        await connection.rollback(); // If anything fails, rollback safely
+        await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
+        console.log(`Invalid YouTube link format: ${video_link}`);
+        continue;
       }
+
+      // Step 3 - Check if order_id or video_link already in orders or temp_orders
+      const [existing] = await db.queryAsync(`
+        SELECT order_id FROM orders WHERE order_id = ? OR video_link = ?
+        UNION
+        SELECT order_id FROM temp_orders WHERE order_id = ? OR video_link = ?
+      `, [order_id, video_link, order_id, video_link]);
+
+      if (existing.length > 0) {
+        await db.queryAsync(`
+          INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp)
+          VALUES (?, ?, ?, ?, NOW())
+        `, [order_id, video_link, quantity, remaining]);
+        await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
+        console.log(`Duplicate entry found for: ${order_id}`);
+        continue;
+      }
+
+      // Step 4 - YouTube API Validation
+      const { valid, reason } = await isValidYouTubeVideo(videoId);
+
+      if (!valid) {
+        await db.queryAsync(`
+          INSERT INTO invalid_orders (order_id, video_link, quantity, remaining, error_reason, timestamp)
+          VALUES (?, ?, ?, ?, ?, NOW())
+        `, [order_id, video_link, quantity, remaining, reason]);
+        await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
+        console.log(`Invalid YouTube Video: ${video_link} - ${reason}`);
+        continue;
+      }
+
+      // Step 5 - Insert into orders table
+      await db.queryAsync(`
+        INSERT INTO orders (order_id, video_link, quantity, remaining)
+        VALUES (?, ?, ?, ?)
+      `, [order_id, video_link, quantity, remaining]);
+      await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
+      console.log(`Order inserted successfully: ${order_id}`);
     }
 
   } catch (err) {
-    console.error('Error fetching pending orders:', err);
-  } finally {
-    connection.release(); // Always release connection
+    console.error('Error processing pending orders:', err);
   }
 }
 
-// Auto-run every 5 minutes
+// Auto-run pending orders every 5 min
 setInterval(processPendingOrders, 300000);
+
 
 
 
