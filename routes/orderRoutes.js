@@ -89,17 +89,45 @@ router.get("/fetch-order/:username", async (req, res) => {
 const getYouTubeVideoId = (url) => {
   try {
     const parsedUrl = new URL(url);
-    if (parsedUrl.hostname.includes('youtu.be')) {
+    const hostname = parsedUrl.hostname.replace('www.', '');
+
+    if (hostname === 'youtu.be') {
       return parsedUrl.pathname.slice(1);
     }
-    if (parsedUrl.hostname.includes('youtube.com')) {
-      return parsedUrl.searchParams.get('v');
+
+    if (hostname === 'youtube.com') {
+      if (parsedUrl.pathname === '/watch') {
+        return parsedUrl.searchParams.get('v');
+      }
+
+      // Handle Shorts
+      if (parsedUrl.pathname.startsWith('/shorts/')) {
+        return parsedUrl.pathname.split('/')[2] || parsedUrl.pathname.split('/')[1];
+      }
+
+      // Handle Live
+      if (parsedUrl.pathname.startsWith('/live/')) {
+        return parsedUrl.pathname.split('/')[2] || parsedUrl.pathname.split('/')[1];
+      }
+
+      // Handle Embed
+      if (parsedUrl.pathname.startsWith('/embed/')) {
+        return parsedUrl.pathname.split('/')[2] || parsedUrl.pathname.split('/')[1];
+      }
+
+      // Handle /v/VIDEO_ID format
+      if (parsedUrl.pathname.startsWith('/v/')) {
+        return parsedUrl.pathname.split('/')[2] || parsedUrl.pathname.split('/')[1];
+      }
     }
+
     return null;
   } catch (e) {
+    console.error('❌ Error parsing YouTube URL:', e.message);
     return null;
   }
 };
+
 
 // Helper: Validate with YouTube API
 const isValidYouTubeVideo = async (videoId) => {
