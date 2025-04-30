@@ -1,6 +1,3 @@
-const cluster = require('cluster');
-const os = require('os');
-
 if (cluster.isMaster) {
   const numCPUs = os.cpus().length;
   console.log(`Master ${process.pid} running`);
@@ -9,10 +6,14 @@ if (cluster.isMaster) {
     cluster.fork();
   }
 
-  cluster.on('exit', (worker) => {
-    console.log(`Worker ${worker.process.pid} died, restarting...`);
+  cluster.on('exit', (worker, code, signal) => {
+    console.log(`Worker ${worker.process.pid} died (code: ${code}, signal: ${signal}), restarting...`);
     cluster.fork();
   });
 } else {
-  require('./server'); // Tumhara pura server code
+  try {
+    require('./server');
+  } catch (err) {
+    console.error("❌ Worker crashed due to error:", err);
+  }
 }
