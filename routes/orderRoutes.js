@@ -348,25 +348,38 @@ router.get('/ordersData', async (req, res) => {
 // Delete order from 'orders' or 'temp_orders' table
 router.delete('/ordersData/:orderId', async (req, res) => {
   const { orderId } = req.params;
-  const { table } = req.body; // The table to delete from ('orders' or 'temp_orders')
 
-  if (!table || (table !== 'orders' && table !== 'temp_orders')) {
-    return res.status(400).json({ message: 'Invalid table specified' });
+  if (!orderId) {
+    return res.status(400).json({ message: 'Order ID is required' });
   }
 
   try {
-    const deleteQuery = `DELETE FROM ${table} WHERE order_id = ?`;
+    const tables = ['orders', 'temp_orders'];
 
-    db.query(deleteQuery, [orderId], (err, result) => {
-      if (err) {
-        return res.status(500).json({ message: 'Failed to delete order' });
+    // Check both tables for the order
+    for (const table of tables) {
+      const checkQuery = `SELECT * FROM ${table} WHERE order_id = ? LIMIT 1`;
+
+      const [rows] = await db.promise().query(checkQuery, [orderId]);
+
+      if (rows.length > 0) {
+        // If found, delete from this table
+        const deleteQuery = `DELETE FROM ${table} WHERE order_id = ?`;
+        await db.promise().query(deleteQuery, [orderId]);
+
+        return res.json({ success: true, message: `Order deleted from ${table}` });
       }
-      res.json({ success: true });
-    });
+    }
+
+    // If not found in either table
+    return res.status(404).json({ message: 'Order not found in orders or temp_orders' });
+
   } catch (err) {
+    console.error("Delete order error:", err);
     return res.status(500).json({ message: 'Server error' });
   }
 });
+
 
 // Get orders from 'complete_orders' table
 router.get('/ordersComplete', async (req, res) => {
