@@ -52,10 +52,10 @@ app.use("/api/clientUser", clientUserRoutes);
 
 
 // React build folder serve karo (outside current dir)
-//app.use(express.static(path.join(__dirname, '..', 'yt-view-front', 'build')));
+app.use(express.static(path.join(__dirname, '..', 'yt-view-front', 'build')));
 
 // SPA ke liye fallback
-/*app.get('*', (req, res) => {
+app.get('*', (req, res) => {
   // If route starts with /api and no API route matched, return 404
   if (req.path.startsWith('/api')) {
     return res.status(404).json({ error: 'API not found' });
@@ -63,7 +63,7 @@ app.use("/api/clientUser", clientUserRoutes);
 
   // Otherwise serve the React app (for React Router)
   res.sendFile(path.join(__dirname, '..', 'yt-view-front', 'build', 'index.html'));
-});*/
+});
 
 // Global Error Handler
 app.use((err, req, res, next) => {
