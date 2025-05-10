@@ -346,39 +346,51 @@ router.get('/ordersData', async (req, res) => {
 
 // routes/orders.js
 // Delete order from 'orders' or 'temp_orders' table
-router.delete('/ordersData/:orderId', async (req, res) => {
+router.delete('/ordersData/:orderId', (req, res) => {
   const { orderId } = req.params;
 
   if (!orderId) {
     return res.status(400).json({ message: 'Order ID is required' });
   }
 
-  try {
-    const tables = ['orders', 'temp_orders'];
+  const tables = ['orders', 'temp_orders'];
 
-    // Check both tables for the order
-    for (const table of tables) {
-      const checkQuery = `SELECT * FROM ${table} WHERE order_id = ? LIMIT 1`;
-
-      const [rows] = await db.promise().query(checkQuery, [orderId]);
-
-      if (rows.length > 0) {
-        // If found, delete from this table
-        const deleteQuery = `DELETE FROM ${table} WHERE order_id = ?`;
-        await db.promise().query(deleteQuery, [orderId]);
-
-        return res.json({ success: true, message: `Order deleted from ${table}` });
-      }
+  // Function to check and delete from each table recursively
+  function checkAndDelete(index) {
+    if (index >= tables.length) {
+      return res.status(404).json({ message: 'Order not found in orders or temp_orders' });
     }
 
-    // If not found in either table
-    return res.status(404).json({ message: 'Order not found in orders or temp_orders' });
+    const table = tables[index];
+    const checkQuery = `SELECT * FROM ${table} WHERE order_id = ? LIMIT 1`;
 
-  } catch (err) {
-    console.error("Delete order error:", err);
-    return res.status(500).json({ message: 'Server error' });
+    db.query(checkQuery, [orderId], (err, rows) => {
+      if (err) {
+        console.error("DB Error:", err);
+        return res.status(500).json({ message: 'Database error' });
+      }
+
+      if (rows.length > 0) {
+        // Order found, delete it
+        const deleteQuery = `DELETE FROM ${table} WHERE order_id = ?`;
+        db.query(deleteQuery, [orderId], (err2) => {
+          if (err2) {
+            console.error("Delete Error:", err2);
+            return res.status(500).json({ message: 'Failed to delete order' });
+          }
+
+          return res.json({ success: true, message: `Order deleted from ${table}` });
+        });
+      } else {
+        // Check next table
+        checkAndDelete(index + 1);
+      }
+    });
   }
+
+  checkAndDelete(0); // Start with first table
 });
+
 
 
 // Get orders from 'complete_orders' table
