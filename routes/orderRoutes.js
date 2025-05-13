@@ -327,22 +327,21 @@ setInterval(processPendingOrders, 300000); // 5 minutes
 
 // Get orders from both 'orders' and 'temp_orders' tables
 router.get('/ordersData', async (req, res) => {
-  try {
-    // Query to get orders from the 'orders' table
-    const ordersQuery = 'SELECT order_id, video_link, quantity, remaining, "orders" AS tableName FROM orders';
-    const tempOrdersQuery = 'SELECT order_id, video_link, quantity, remaining, "temp_orders" AS tableName FROM temp_orders';
+  const ordersQuery = `
+    SELECT order_id, video_link, quantity, remaining, 'orders' AS tableName FROM orders
+    UNION
+    SELECT order_id, video_link, quantity, remaining, 'temp_orders' AS tableName FROM temp_orders
+  `;
 
-    // Execute both queries
-    db.query(ordersQuery + ' UNION ' + tempOrdersQuery, (err, result) => {
-      if (err) {
-        return res.status(500).json({ message: 'Error fetching orders from database' });
-      }
-      res.json({ orders: result });
-    });
+  try {
+    const result = await db.queryAsync(ordersQuery);
+    res.json({ orders: result });
   } catch (err) {
-    return res.status(500).json({ message: 'Server error' });
+    console.error("❌ Error fetching orders:", err.message);
+    res.status(500).json({ message: "Failed to fetch orders." });
   }
 });
+
 
 // routes/orders.js
 // Delete order from 'orders' or 'temp_orders' table

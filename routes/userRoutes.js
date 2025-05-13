@@ -13,18 +13,22 @@ const db = require("../config/db"); // MySQL Connection
 
 // 🛠 Check if user exists
 // 🛠 Check if user exists
-router.post("/check-user", (req, res) => {
+router.post("/check-user", async (req, res) => {
   const { username } = req.body;
 
-  db.query("SELECT * FROM user WHERE username = ?", [username], (err, results) => {
-    if (err) {
-      console.error("Database Error:", err);
-      return res.status(500).json({ error: "Database error." });
-    }
+  if (!username || typeof username !== "string" || username.trim() === "") {
+    return res.status(400).json({ success: false, message: "Username is required and must be a string." });
+  }
 
+  try {
+    const results = await db.queryAsync("SELECT 1 FROM user WHERE username = ? LIMIT 1", [username]);
     return res.json({ exists: results.length > 0 });
-  });
+  } catch (err) {
+    console.error("❌ Database Error in /check-user:", err.message);
+    return res.status(500).json({ success: false, error: "Internal server error." });
+  }
 });
+
 
 // 🛠 Add user and create profile table
 router.post("/add-user", async (req, res) => {
@@ -71,12 +75,16 @@ router.post("/add-user", async (req, res) => {
 
 
 // 🛠 Get all users
-router.get("/get-users", (req, res) => {
-  db.queryAsync("SELECT username, num_views FROM user", (err, results) => {
-    if (err) return res.status(500).json({ error: err.message });
+router.get("/get-users", async (req, res) => {
+  try {
+    const results = await db.queryAsync("SELECT username, num_views FROM user");
     res.json(results);
-  });
+  } catch (err) {
+    console.error("❌ Error in /get-users:", err.message);
+    res.status(500).json({ error: "Failed to fetch users." });
+  }
 });
+
 
 
 // 🛠 Delete user and associated profile table
