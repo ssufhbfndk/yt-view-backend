@@ -27,51 +27,48 @@ router.post("/check-user", (req, res) => {
 });
 
 // 🛠 Add user and create profile table
-router.post("/add-user", (req, res) => {
+router.post("/add-user", async (req, res) => {
   const { username } = req.body;
 
   if (!username) {
     return res.status(400).json({ success: false, message: "Username is required." });
   }
 
-  // Check if username already exists
-  db.query("SELECT * FROM user WHERE username = ?", [username], (err, results) => {
-    if (err) {
-      console.error("Database Error:", err);
-      return res.status(500).json({ error: "Database error." });
-    }
+  // ✅ Sanitize username to prevent SQL injection in table name
+  if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+    return res.status(400).json({ success: false, message: "Invalid username format." });
+  }
 
-    if (results.length > 0) {
+  try {
+    // ✅ Check if username already exists
+    const existingUsers = await db.queryAsync("SELECT * FROM user WHERE username = ?", [username]);
+
+    if (existingUsers.length > 0) {
       return res.json({ success: false, message: "Username already exists." });
     }
 
-    // Add user to 'user' table
-    db.query("INSERT INTO user (username, num_views) VALUES (?, ?)", [username, 0], (err, result) => {
-      if (err) {
-        console.error("Insert Error:", err);
-        return res.status(500).json({ error: "Failed to insert user." });
-      }
+    // ✅ Insert user into user table
+    await db.queryAsync("INSERT INTO user (username, num_views) VALUES (?, ?)", [username, 0]);
 
-      // Create user-specific profile table
-      const profileTable = `profile_${username}`;
-      const createProfileTable = `
-        CREATE TABLE IF NOT EXISTS ${profileTable} (
-          order_id INT AUTO_INCREMENT PRIMARY KEY,
-          timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `;
+    // ✅ Create profile_[username] table safely
+    const profileTable = `profile_${username}`;
+    const createProfileTableSQL = `
+      CREATE TABLE IF NOT EXISTS \`${profileTable}\` (
+        order_id INT AUTO_INCREMENT PRIMARY KEY,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
 
-      db.query(createProfileTable, (err) => {
-        if (err) {
-          console.error("Table Creation Error:", err);
-          return res.status(500).json({ error: "Failed to create profile table." });
-        }
+    await db.queryAsync(createProfileTableSQL);
 
-        res.json({ success: true, message: "User added and profile table created." });
-      });
-    });
-  });
+    return res.json({ success: true, message: "User added and profile table created." });
+
+  } catch (err) {
+    console.error("❌ API Error in /add-user:", err);
+    return res.status(500).json({ success: false, message: "Internal server error." });
+  }
 });
+
 
 // 🛠 Get all users
 router.get("/get-users", (req, res) => {
