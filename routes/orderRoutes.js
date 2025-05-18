@@ -6,8 +6,12 @@ const db = require('../config/db');  // Assuming db.js is where your MySQL conne
 const axios = require('axios');
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
 
-router.get("/fetch-order/:username", async (req, res) => {
-  const { username } = req.params;
+router.post("/fetch-order", async (req, res) => {
+  const { username, ip } = req.body;
+
+  if (!username || !ip) {
+    return res.status(400).json({ success: false, message: "Username and IP required" });
+  }
 
   if (!username.match(/^[a-zA-Z0-9_]+$/)) {
     return res.status(400).json({ success: false, message: "Invalid username" });
@@ -18,69 +22,127 @@ router.get("/fetch-order/:username", async (req, res) => {
 
   try {
     connection = await db.getConnection();
-    const conn = connection.promise(); // 🟢 Use promise wrapper for async/await
+    const conn = connection.promise();
 
     await conn.query("START TRANSACTION");
 
-    // 🟢 Step 1: Get a random order that is NOT in the user’s profile table
+    // 1️⃣ Select a random order NOT in user's profile and IP count < 5
     const [orders] = await conn.query(`
-      SELECT o.* FROM orders o 
-      LEFT JOIN ${profileTable} p ON o.order_id = p.order_id 
-      WHERE p.order_id IS NULL 
-      ORDER BY RAND() 
+      SELECT o.* FROM orders o
+      LEFT JOIN ${profileTable} p ON o.order_id = p.order_id
+      LEFT JOIN order_ip_tracking ipt ON o.order_id = ipt.order_id AND ipt.ip_address = ?
+      WHERE p.order_id IS NULL
+        AND (ipt.count IS NULL OR ipt.count < 5)
+      ORDER BY RAND()
       LIMIT 1
-    `);
+    `, [ip]);
 
     if (orders.length === 0) {
-      await conn.query("COMMIT"); // Commit to close transaction gracefully
+      await conn.query("COMMIT");
       connection.release();
       return res.status(200).json({ success: false, message: "No new orders found" });
     }
 
-    const randomOrder = orders[0];
+    const order = orders[0];
 
-    // 🟢 Step 2: Handle based on remaining count
-    if (randomOrder.remaining <= 1) {
+    // 2️⃣ Update or insert IP tracking
+    const [existingIP] = await conn.query(
+      `SELECT * FROM order_ip_tracking WHERE order_id = ? AND ip_address = ?`,
+      [order.order_id, ip]
+    );
+
+    if (existingIP.length > 0) {
       await conn.query(
-        `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) VALUES (?, ?, ?, NOW())`,
-        [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity]
+        `UPDATE order_ip_tracking SET count = count + 1 WHERE order_id = ? AND ip_address = ?`,
+        [order.order_id, ip]
       );
     } else {
       await conn.query(
-        `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())`,
-        [randomOrder.order_id, randomOrder.video_link, randomOrder.quantity, randomOrder.remaining - 1]
+        `INSERT INTO order_ip_tracking (order_id, ip_address, count) VALUES (?, ?, 1)`,
+        [order.order_id, ip]
       );
     }
 
-    // 🟢 Step 3: Remove from orders table
-    await conn.query(`DELETE FROM orders WHERE order_id = ?`, [randomOrder.order_id]);
+    // 3️⃣ Update or insert user pick count
+    const [userPick] = await conn.query(
+      `SELECT * FROM order_user_pick_count WHERE order_id = ?`,
+      [order.order_id]
+    );
 
-    // 🟢 Step 4: Add to user's profile table
+    if (userPick.length > 0) {
+      await conn.query(
+        `UPDATE order_user_pick_count SET user_count = user_count + 1 WHERE order_id = ?`,
+        [order.order_id]
+      );
+    } else {
+      await conn.query(
+        `INSERT INTO order_user_pick_count (order_id, user_count) VALUES (?, 1)`,
+        [order.order_id]
+      );
+    }
+
+    // 4️⃣ Check updated user_count
+    const [updatedPick] = await conn.query(
+      `SELECT user_count FROM order_user_pick_count WHERE order_id = ?`,
+      [order.order_id]
+    );
+
+    if (updatedPick.length > 0 && updatedPick[0].user_count >= 3) {
+      const newRemaining = order.remaining - 1;
+
+      if (newRemaining <= 0) {
+        // remaining 0: Move to complete_orders, delete from orders and order_user_pick_count
+        await conn.query(
+          `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp)
+           VALUES (?, ?, ?, NOW())`,
+          [order.order_id, order.video_link, order.quantity]
+        );
+
+        await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
+
+        await conn.query(`DELETE FROM order_user_pick_count WHERE order_id = ?`, [order.order_id]);
+
+      } else {
+        // remaining > 0: Insert into temp_orders, delete from orders
+        await conn.query(
+          `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp)
+           VALUES (?, ?, ?, ?, NOW())`,
+          [order.order_id, order.video_link, order.quantity, newRemaining]
+        );
+
+        await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
+
+        // **Note:** Do NOT delete order_user_pick_count here, keep it for temp_orders
+      }
+
+    } else {
+      // user_count < 3: Just decrement remaining in orders
+      await conn.query(
+        `UPDATE orders SET remaining = remaining - 1 WHERE order_id = ?`,
+        [order.order_id]
+      );
+    }
+
+    // 5️⃣ Insert into user's profile table
     await conn.query(
       `INSERT INTO ${profileTable} (order_id, timestamp) VALUES (?, NOW())`,
-      [randomOrder.order_id]
+      [order.order_id]
     );
 
     await conn.query("COMMIT");
     connection.release();
 
-    res.status(200).json({ success: true, order: randomOrder });
+    res.status(200).json({ success: true, order });
+
   } catch (error) {
-    console.error("❌ Error processing order:", error);
-
+    console.error("❌ Error in fetch-order:", error);
     if (connection) {
-      try {
-        await connection.promise().query("ROLLBACK");
-        connection.release();
-      } catch (rollbackError) {
-        console.error("❌ Rollback failed:", rollbackError);
-      }
+      await connection.promise().query("ROLLBACK");
+      connection.release();
     }
-
-    res.status(500).json({ success: false, message: "Internal Server Error" });
+    res.status(500).json({ success: false, message: "Server Error" });
   }
 });
-
 
 //order save tu db
 
