@@ -1,5 +1,5 @@
 const processPendingOrders = require('../services/orderProcessor');
-const processTempOrders = require('../services/tempOrderProcessor');
+const processTempOrders = require('../services/processTempOrders');
 const deleteOldOrders = require('../services/cleanupOldOrders');
 const cleanupOldIpTracking = require('../services/cleanupIpTracking');
 
