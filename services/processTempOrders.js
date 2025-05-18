@@ -1,5 +1,5 @@
 
-const db = require('./db'); // apne db connection ka path set karein
+const db = require('../config/db'); // apne db connection ka path set karein
 
 const processTempOrders = async () => {
   console.log("⏳ Checking temp_orders for processing...");

@@ -1,4 +1,4 @@
-const db = require('../db'); // Adjust based on your project
+const db = require('../config/db'); // Adjust based on your project
 
 const cleanupOldIpTracking = async () => {
   try {

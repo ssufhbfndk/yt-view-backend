@@ -1,4 +1,4 @@
-const db = require('../db'); // Adjust path based on your structure
+const db = require('../config/db'); // Adjust path based on your structure
 
 const deleteOldOrders = async () => {
   try {
