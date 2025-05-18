@@ -2,9 +2,6 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');  // Assuming db.js is where your MySQL connection is set up
 
-// Process data from frontend
-const axios = require('axios');
-const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
 
 router.post("/fetch-order", async (req, res) => {
   const { username, ip } = req.body;
@@ -26,7 +23,7 @@ router.post("/fetch-order", async (req, res) => {
 
     await conn.query("START TRANSACTION");
 
-    // 1️⃣ Select a random order NOT in user's profile and IP count < 5
+    // 1️⃣ Find order not used by this user and IP under 5
     const [orders] = await conn.query(`
       SELECT o.* FROM orders o
       LEFT JOIN ${profileTable} p ON o.order_id = p.order_id
@@ -45,7 +42,7 @@ router.post("/fetch-order", async (req, res) => {
 
     const order = orders[0];
 
-    // 2️⃣ Update or insert IP tracking
+    // 2️⃣ Update IP tracking
     const [existingIP] = await conn.query(
       `SELECT * FROM order_ip_tracking WHERE order_id = ? AND ip_address = ?`,
       [order.order_id, ip]
@@ -53,17 +50,17 @@ router.post("/fetch-order", async (req, res) => {
 
     if (existingIP.length > 0) {
       await conn.query(
-        `UPDATE order_ip_tracking SET count = count + 1 WHERE order_id = ? AND ip_address = ?`,
+        `UPDATE order_ip_tracking SET count = count + 1, timestamp = NOW() WHERE order_id = ? AND ip_address = ?`,
         [order.order_id, ip]
       );
     } else {
       await conn.query(
-        `INSERT INTO order_ip_tracking (order_id, ip_address, count) VALUES (?, ?, 1)`,
+        `INSERT INTO order_ip_tracking (order_id, ip_address, count, timestamp) VALUES (?, ?, 1, NOW())`,
         [order.order_id, ip]
       );
     }
 
-    // 3️⃣ Update or insert user pick count
+    // 3️⃣ Update user pick count
     const [userPick] = await conn.query(
       `SELECT * FROM order_user_pick_count WHERE order_id = ?`,
       [order.order_id]
@@ -81,17 +78,17 @@ router.post("/fetch-order", async (req, res) => {
       );
     }
 
-    // 4️⃣ Check updated user_count
+    // 4️⃣ Fetch updated user_count
     const [updatedPick] = await conn.query(
       `SELECT user_count FROM order_user_pick_count WHERE order_id = ?`,
       [order.order_id]
     );
 
     if (updatedPick.length > 0 && updatedPick[0].user_count >= 3) {
+      // remove from orders, move to temp or complete
       const newRemaining = order.remaining - 1;
 
       if (newRemaining <= 0) {
-        // remaining 0: Move to complete_orders, delete from orders and order_user_pick_count
         await conn.query(
           `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp)
            VALUES (?, ?, ?, NOW())`,
@@ -99,11 +96,9 @@ router.post("/fetch-order", async (req, res) => {
         );
 
         await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
-
         await conn.query(`DELETE FROM order_user_pick_count WHERE order_id = ?`, [order.order_id]);
 
       } else {
-        // remaining > 0: Insert into temp_orders, delete from orders
         await conn.query(
           `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp)
            VALUES (?, ?, ?, ?, NOW())`,
@@ -111,19 +106,13 @@ router.post("/fetch-order", async (req, res) => {
         );
 
         await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
-
-        // **Note:** Do NOT delete order_user_pick_count here, keep it for temp_orders
       }
-
     } else {
-      // user_count < 3: Just decrement remaining in orders
-      await conn.query(
-        `UPDATE orders SET remaining = remaining - 1 WHERE order_id = ?`,
-        [order.order_id]
-      );
+      // Less than 3 user picks: decrement remaining
+      await conn.query(`UPDATE orders SET remaining = remaining - 1 WHERE order_id = ?`, [order.order_id]);
     }
 
-    // 5️⃣ Insert into user's profile table
+    // 5️⃣ Add to user profile
     await conn.query(
       `INSERT INTO ${profileTable} (order_id, timestamp) VALUES (?, NOW())`,
       [order.order_id]
@@ -133,7 +122,6 @@ router.post("/fetch-order", async (req, res) => {
     connection.release();
 
     res.status(200).json({ success: true, order });
-
   } catch (error) {
     console.error("❌ Error in fetch-order:", error);
     if (connection) {
@@ -143,93 +131,6 @@ router.post("/fetch-order", async (req, res) => {
     res.status(500).json({ success: false, message: "Server Error" });
   }
 });
-
-//order save tu db
-
-
-// Helper: YouTube ID extractor
-const getYouTubeVideoId = (url) => {
-  try {
-    const parsedUrl = new URL(url);
-    const hostname = parsedUrl.hostname.replace('www.', '');
-
-    if (hostname === 'youtu.be') {
-      return parsedUrl.pathname.slice(1);
-    }
-
-    if (hostname === 'youtube.com') {
-      if (parsedUrl.pathname === '/watch') {
-        return parsedUrl.searchParams.get('v');
-      }
-
-      // Handle Shorts
-      if (parsedUrl.pathname.startsWith('/shorts/')) {
-        return parsedUrl.pathname.split('/')[2] || parsedUrl.pathname.split('/')[1];
-      }
-
-      // Handle Live
-      if (parsedUrl.pathname.startsWith('/live/')) {
-        return parsedUrl.pathname.split('/')[2] || parsedUrl.pathname.split('/')[1];
-      }
-
-      // Handle Embed
-      if (parsedUrl.pathname.startsWith('/embed/')) {
-        return parsedUrl.pathname.split('/')[2] || parsedUrl.pathname.split('/')[1];
-      }
-
-      // Handle /v/VIDEO_ID format
-      if (parsedUrl.pathname.startsWith('/v/')) {
-        return parsedUrl.pathname.split('/')[2] || parsedUrl.pathname.split('/')[1];
-      }
-    }
-
-    return null;
-  } catch (e) {
-    console.error('❌ Error parsing YouTube URL:', e.message);
-    return null;
-  }
-};
-
-
-// Helper: Validate with YouTube API
-const isValidYouTubeVideo = async (videoId) => {
-  const url = `https://www.googleapis.com/youtube/v3/videos?part=status,player,snippet&id=${videoId}&key=${YOUTUBE_API_KEY}`;
-  try {
-    const response = await axios.get(url);
-    const item = response.data.items[0];
-    if (!item) {
-      return { valid: false, reason: 'Video not found' };
-    }
-
-    const { status, player, snippet } = item;
-
-    // Check embeddable
-    if (!status.embeddable) {
-      return { valid: false, reason: 'Video not embeddable' };
-    }
-
-    // Check privacy public hai
-    if (status.privacyStatus !== 'public') {
-      return { valid: false, reason: `Video privacy: ${status.privacyStatus}` };
-    }
-
-    // Check player HTML se "Video unavailable" na ho
-    if (player.embedHtml.includes('Video unavailable')) {
-      return { valid: false, reason: 'Embed shows video unavailable' };
-    }
-
-    // Check agar video currently live hai
-    if (snippet.liveBroadcastContent === 'live') {
-      return { valid: false, reason: 'Currently Live Video not allowed' };
-    }
-
-    // Sab pass ho gaya
-    return { valid: true };
-  } catch (err) {
-    console.error('YouTube API error:', err.response?.data || err.message);
-    return { valid: false, reason: err.response?.data?.error?.message || err.message };
-  }
-};
 
 
 // API 1 - Receive Data from user and Save to pending_orders
@@ -274,112 +175,6 @@ router.post('/process', async (req, res) => {
     res.status(500).json({ success: false, message: 'Server Error' });
   }
 });
-
-
-// Background Function - Process pending orders
-const processPendingOrders = async () => {
-  try {
-    // Step 1 - Fetch pending_orders
-    const pending = await db.queryAsync('SELECT * FROM pending_orders ORDER BY id ASC');
-
-    console.log('Pending orders fetched:', pending);
-
-    if (!pending || !Array.isArray(pending) || pending.length === 0) {
-      console.log('No pending orders found.');
-      return;
-    }
-
-    console.log(`Found ${pending.length} pending orders. Processing...`);
-
-    // Step 2 - Process each order one by one
-    for (const order of pending) {
-      try {
-        const { id, order_id, video_link, quantity, remaining } = order;
-
-        // Step 2.1 - Basic YouTube URL check
-        const videoId = getYouTubeVideoId(video_link);
-
-        if (!videoId) {
-          await db.queryAsync(`
-            INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp)
-            VALUES (?, ?, ?, ?, NOW())
-          `, [order_id, video_link, quantity, remaining]);
-
-          await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
-          console.log(`Invalid YouTube link format: ${video_link}`);
-          await delay(2000); // 2 second delay
-          continue;
-        }
-
-        // Step 2.2 - Duplicate Check in orders and temp_orders
-        const existing = await db.queryAsync(`
-          SELECT order_id FROM orders WHERE order_id = ? OR video_link = ?
-          UNION
-          SELECT order_id FROM temp_orders WHERE order_id = ? OR video_link = ?
-        `, [order_id, video_link, order_id, video_link]);
-
-        if (existing && existing.length > 0) {
-          await db.queryAsync(`
-            INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp)
-            VALUES (?, ?, ?, ?, NOW())
-          `, [order_id, video_link, quantity, remaining]);
-
-          await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
-          console.log(`Duplicate entry found for: ${order_id}`);
-          await delay(2000); // 2 second delay
-          continue;
-        }
-
-        // Step 2.3 - Validate with YouTube API
-        const { valid, reason } = await isValidYouTubeVideo(videoId);
-
-        if (!valid) {
-          await db.queryAsync(`
-            INSERT INTO invalid_orders (order_id, video_link, quantity, remaining, error_reason, timestamp)
-            VALUES (?, ?, ?, ?, ?, NOW())
-          `, [order_id, video_link, quantity, remaining, reason]);
-
-          await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
-          console.log(`Invalid YouTube Video: ${video_link} - ${reason}`);
-          await delay(2000); // 2 second delay
-          continue;
-        }
-
-        // Step 2.4 - Insert into orders table
-        await db.queryAsync(`
-          INSERT INTO orders (order_id, video_link, quantity, remaining)
-          VALUES (?, ?, ?, ?)
-        `, [order_id, video_link, quantity, remaining]);
-
-        await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
-        console.log(`Order inserted successfully: ${order_id}`);
-
-        // 2 seconds delay after successful processing
-        await delay(2000);
-
-      } catch (innerError) {
-        console.error(`❌ Error processing order:`, innerError);
-        await delay(2000); // Still wait 2 seconds even if error
-        continue; // Go to next order
-      }
-    }
-
-    console.log('✅ All pending orders processed.');
-
-  } catch (err) {
-    console.error('❌ Error fetching pending orders:', err);
-  }
-};
-
-// Helper function for 2-second delay
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-// Auto-run pending orders every 5 min
-setInterval(processPendingOrders, 300000); // 5 minutes
-
-
-
-
 
 
 //////////////////////
@@ -493,78 +288,6 @@ router.delete('/deleteOrderComplete/:id', async (req, res) => {
 
 
 ///////////////////////////////////////////////////////////////
-
-
-// Process orders every 1 minute
-let isProcessing = false;
-
-setInterval(async () => {
-  if (isProcessing) return;
-  isProcessing = true;
-
-  console.log("⏳ Checking temp_orders for processing...");
-
-  let connection;
-
-  try {
-    connection = await db.getConnection();
-
-    // Use the promise wrapper for async/await
-    const conn = connection.promise();
-
-    await conn.query('START TRANSACTION');
-
-    // Select eligible orders
-    const [tempOrders] = await conn.query(`
-      SELECT * FROM temp_orders
-      WHERE TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 60
-      FOR UPDATE
-    `);
-
-    if (tempOrders.length === 0) {
-      console.log("✅ No temp orders to process.");
-      await conn.query('COMMIT');
-      return;
-    }
-
-    for (const tempOrder of tempOrders) {
-      const { order_id, video_link, quantity, remaining } = tempOrder;
-
-      if (remaining > 0) {
-        await conn.query(`
-          INSERT INTO orders (order_id, video_link, quantity, remaining)
-          VALUES (?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE remaining = VALUES(remaining)
-        `, [order_id, video_link, quantity, remaining]);
-
-        console.log(`🔄 Order ${order_id} moved back to orders table.`);
-      } else {
-        await conn.query(`
-          INSERT INTO complete_orders (order_id, video_link, quantity, timestamp)
-          VALUES (?, ?, ?, NOW())
-        `, [order_id, video_link, quantity]);
-
-        console.log(`✅ Order ${order_id} moved to complete_orders.`);
-      }
-
-      await conn.query(
-        `DELETE FROM temp_orders WHERE order_id = ?`,
-        [order_id]
-      );
-
-      console.log(`🗑️ Order ${order_id} removed from temp_orders.`);
-    }
-
-    await conn.query('COMMIT');
-    console.log("🎉 All eligible temp_orders processed successfully.");
-  } catch (error) {
-    console.error("❌ Error during temp_orders processing:", error);
-    if (connection) await connection.promise().query('ROLLBACK');
-  } finally {
-    if (connection) connection.release();
-    isProcessing = false;
-  }
-}, 60000);
 
 
 //funtion use every 1houre
