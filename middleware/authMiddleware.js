@@ -47,19 +47,33 @@ exports.verifyAdminToken = (req, res, next) => {
 };
 
 // 🔹 Middleware to Verify user Token
-exports.verifyUserToken = (req, res, next) => {
-  const token = req.cookies.user_token;
 
+exports.verifyUserToken = (req, res, next) => {
+  let token = null;
+
+  // 🔹 Check Authorization header first (for mobile/React Native)
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    token = authHeader.split(" ")[1];
+  }
+
+  // 🔹 If not found in header, check cookies (for browser)
+  if (!token && req.cookies && req.cookies.user_token) {
+    token = req.cookies.user_token;
+  }
+
+  // 🔸 If token is still missing, reject the request
   if (!token) {
     return res.status(401).json({ success: false, message: "Unauthorized: No token provided" });
   }
 
+  // 🔹 Verify token
   jwt.verify(token, SECRET_KEY, (err, decoded) => {
     if (err) {
       return res.status(403).json({ success: false, message: "Unauthorized: Invalid token" });
     }
 
-    req.user = decoded; // Store user data in request
+    req.user = decoded; // Store user info in request object
     next();
   });
 };

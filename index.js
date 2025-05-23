@@ -1,23 +1,24 @@
-const cluster = require('cluster'); // Fix: cluster ko import karna zaroori hai
-const os = require('os');           // os module bhi chahiye to get CPU count
+const processPendingOrders = require('../services/orderProcessor');
+const processTempOrders = require('../services/processTempOrders');
+const deleteOldOrders = require('../services/cleanupOldOrders');
+const cleanupOldIpTracking = require('../services/cleanupIpTracking');
 
-if (cluster.isMaster) {
-  const numCPUs = os.cpus().length;
-  console.log(`👑 Master ${process.pid} running with ${numCPUs} workers`);
+// Every 5 minutes
+setInterval(processPendingOrders, 5 * 60 * 1000);
 
-  for (let i = 0; i < numCPUs; i++) {
-    cluster.fork(); // Har CPU ke liye ek worker fork karo
-  }
+// Every 1 minute
+setInterval(processTempOrders, 60 * 1000);
 
-  cluster.on('exit', (worker, code, signal) => {
-    console.log(`💀 Worker ${worker.process.pid} died (code: ${code}, signal: ${signal}), restarting...`);
-    cluster.fork(); // Worker crash hone par restart karo
-  });
-} else {
-  // Worker thread
-  try {
-    require('./server'); // Server code ko load karo
-  } catch (err) {
-    console.error("❌ Worker crashed due to error:", err);
-  }
-}
+// Every 1 hour
+setInterval(() => {
+  console.log("🕒 Running hourly cleanup job...");
+  deleteOldOrders();
+}, 60 * 60 * 1000);
+
+// Every 2 minutes
+setInterval(() => {
+  console.log("🧼 Running 2-minute IP log cleanup...");
+  cleanupOldIpTracking();
+}, 2 * 60 * 1000);
+
+console.log('✅ Background jobs initialized in Master process only');
