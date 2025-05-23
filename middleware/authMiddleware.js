@@ -53,6 +53,7 @@ exports.verifyUserToken = (req, res, next) => {
 
   // 🔹 Check Authorization header first (for mobile/React Native)
   const authHeader = req.headers.authorization;
+  console.log(authHeader);
   if (authHeader && authHeader.startsWith("Bearer ")) {
     token = authHeader.split(" ")[1];
   }
