@@ -3,7 +3,7 @@ const dotenv = require("dotenv");
 
 dotenv.config();
 
-const SECRET_KEY = process.env.JWT_SECRET || "supersecretkey";
+const SECRET_KEY = process.env.SESSION_SECRET || "supersecretkey";
 
 // 🔹 Middleware to Verify Admin Token
 exports.verifyAdminToken = (req, res, next) => {
@@ -53,7 +53,7 @@ exports.verifyUserToken = (req, res, next) => {
   const authHeader = req.headers.authorization;
   const cookieToken = req.cookies?.user_token;
   let token = null;
-console.log(authHeader);
+console.log(authHeader)
   if (authHeader && authHeader.startsWith("Bearer ")) {
     token = authHeader.split(" ")[1];
     console.log(token);
