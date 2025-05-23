@@ -53,21 +53,23 @@ exports.verifyUserToken = (req, res, next) => {
   const authHeader = req.headers.authorization;
   const cookieToken = req.cookies?.user_token;
   let token = null;
-console.log(authHeader)
+
   if (authHeader && authHeader.startsWith("Bearer ")) {
     token = authHeader.split(" ")[1];
-    console.log(token);
+   
   } else if (cookieToken) {
     token = cookieToken;
   }
 
   if (!token) {
-    console.log(token);
     return res.status(401).json({ success: false, message: "Unauthorized: No token provided" });
   }
 
   // ✅ Verify token
   jwt.verify(token, SECRET_KEY, (err, decoded) => {
+      console,log(token);
+      console.log(decoded);
+      console.log(err);
     if (err) {
       return res.status(403).json({ success: false, message: "Unauthorized: Invalid token" });
     }
