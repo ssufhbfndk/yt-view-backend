@@ -67,7 +67,6 @@ exports.verifyUserToken = (req, res, next) => {
 
   // ✅ Verify token
   jwt.verify(token, SECRET_KEY, (err, decoded) => {
-      console,log(token);
       console.log(decoded);
       console.log(err);
     if (err) {
