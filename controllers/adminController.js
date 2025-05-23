@@ -1,7 +1,7 @@
 const db = require("../config/db");
 const jwt = require("jsonwebtoken");
 
-const SECRET_KEY = process.env.JWT_SECRET || "supersecretkey";
+const SECRET_KEY = process.env.SESSION_SECRET || "supersecretkey";
 
 const generateToken = (admin) => {
   return jwt.sign(
