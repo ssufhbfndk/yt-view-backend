@@ -62,6 +62,7 @@ console.log(authHeader)
   }
 
   if (!token) {
+    console.log(token);
     return res.status(401).json({ success: false, message: "Unauthorized: No token provided" });
   }
 
