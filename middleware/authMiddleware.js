@@ -56,6 +56,7 @@ exports.verifyUserToken = (req, res, next) => {
 
   if (authHeader && authHeader.startsWith("Bearer ")) {
     token = authHeader.split(" ")[1];
+    console.log(token);
   } else if (cookieToken) {
     token = cookieToken;
   }
