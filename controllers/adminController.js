@@ -73,12 +73,13 @@ exports.logout = (req, res) => {
 // 🔹 Check Admin Session (JWT + Single Device Logic)
 exports.checkAdminSession = (req, res) => {
   const token = req.cookies.admin_token;
-
+  console.log(token);
   if (!token) {
     return res.status(401).json({ success: false, message: "No active session." });
   }
 
   jwt.verify(token, SECRET_KEY, (err, decoded) => {
+     console.log(decoded);
     if (err) {
       return res.status(403).json({ success: false, message: "Invalid or expired session." });
     }
