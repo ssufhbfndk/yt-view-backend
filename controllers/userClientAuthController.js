@@ -4,7 +4,6 @@ const jwt = require("jsonwebtoken");
 const SECRET_KEY = process.env.SESSION_SECRET || "supersecretkey"; // Secure Secret Key
 
 // 🔹 User Login (JWT-Based)
-// 🔹 User Login (Single-Device JWT-Based)
 exports.userClientLogin = (req, res) => {
   const { username } = req.body;
 
@@ -31,54 +30,28 @@ exports.userClientLogin = (req, res) => {
       expiresIn: "24h",
     });
 
-    // ✅ Update token in DB to enforce single device login
-    const updateTokenQuery = "UPDATE user SET jwt_token = ? WHERE id = ?";
-    db.query(updateTokenQuery, [token, clientUser.id], (updateErr) => {
-      if (updateErr) {
-        console.error("Token update error:", updateErr);
-        return res.status(500).json({ success: false, message: "Token update failed." });
-      }
+    // ✅ Send Token in HTTP-Only Cookie
+    res.cookie("user_token", token, {
+      httpOnly: true,
+      secure: true, // Requires HTTPS
+      sameSite: "None",
+      maxAge: 24 * 60 * 60 * 1000, // 1 day expiration
+    });
 
-      // ✅ Set cookie
-      res.cookie("user_token", token, {
-        httpOnly: true,
-        secure: true,
-        sameSite: "None",
-        maxAge: 24 * 60 * 60 * 1000,
-      });
-
-      res.json({
-        success: true,
-        message: "User logged in.",
-        user: { id: clientUser.id, username: clientUser.username },
-        token: token,
-      });
+    res.json({ 
+      success: true, 
+      message: "User logged in.", 
+      user: { id: clientUser.id, username: clientUser.username },
+      token: token // 🔥 ADD THIS
     });
   });
 };
 
 // 🔹 User Logout (Clears JWT Cookie)
-// 🔹 User Logout
 exports.logout = (req, res) => {
-  const token = req.cookies.user_token;
-
-  if (token) {
-    try {
-      const decoded = jwt.verify(token, SECRET_KEY);
-      const updateQuery = "UPDATE user SET jwt_token = NULL WHERE id = ?";
-      db.query(updateQuery, [decoded.id], () => {
-        res.clearCookie("user_token", { httpOnly: true, secure: true, sameSite: "None" });
-        res.json({ success: true, message: "User logged out." });
-      });
-    } catch (err) {
-      res.clearCookie("user_token", { httpOnly: true, secure: true, sameSite: "None" });
-      res.json({ success: true, message: "Invalid token. Logged out anyway." });
-    }
-  } else {
-    res.json({ success: true, message: "No token found." });
-  }
+  res.clearCookie("user_token", { httpOnly: true, secure: true, sameSite: "None" });
+  res.json({ success: true, message: "User logged out" });
 };
-
 
 // 🔹 Check User Token (Session Check)
 exports.checkUserSession = (req, res) => {
