@@ -55,17 +55,29 @@ exports.logout = (req, res) => {
 
 // 🔹 Check User Token (Session Check)
 exports.checkUserSession = (req, res) => {
-  const token = req.cookies.user_token;
+  const token = req.cookies?.user_token;
 
+  // 1. If no token in cookies, session doesn't exist
   if (!token) {
-    return res.status(401).json({ success: false, message: "No active session." });
+    return res.status(401).json({
+      success: false,
+      message: "No active session.",
+    });
   }
 
+  // 2. Verify token validity
   jwt.verify(token, SECRET_KEY, (err, decoded) => {
     if (err) {
-      return res.status(403).json({ success: false, message: "Invalid session." });
+      return res.status(403).json({
+        success: false,
+        message: "Invalid session.",
+      });
     }
 
-    res.json({ success: true, user: decoded });
+    // 3. Valid session - respond with user data decoded from token
+    res.json({
+      success: true,
+      user: decoded,
+    });
   });
 };

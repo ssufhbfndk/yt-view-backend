@@ -48,33 +48,41 @@ exports.verifyAdminToken = (req, res, next) => {
 
 // 🔹 Middleware to Verify user Token
 
+// Middleware: Verify JWT token from header or cookie
 exports.verifyUserToken = (req, res, next) => {
-  // 🔄 Check for token in Authorization header or cookies
+  // 1. Try to get token from Authorization header (Bearer token)
   const authHeader = req.headers.authorization;
+  // 2. Or from cookies (assuming cookie-parser middleware is used)
   const cookieToken = req.cookies?.user_token;
+
   let token = null;
 
   if (authHeader && authHeader.startsWith("Bearer ")) {
-    token = authHeader.split(" ")[1];
-   
+    token = authHeader.split(" ")[1];  // Extract token after "Bearer "
   } else if (cookieToken) {
     token = cookieToken;
   }
 
+  // 3. If no token found, respond with 401 Unauthorized
   if (!token) {
-    return res.status(401).json({ success: false, message: "Unauthorized: No token provided" });
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized: No token provided",
+    });
   }
 
-  // ✅ Verify token
+  // 4. Verify the token validity
   jwt.verify(token, SECRET_KEY, (err, decoded) => {
-      console.log(decoded);
-      console.log(err);
     if (err) {
-      return res.status(403).json({ success: false, message: "Unauthorized: Invalid token" });
+      // Token invalid or expired
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized: Invalid token",
+      });
     }
 
-    req.user = decoded; // Store decoded data in request
+    // 5. Store decoded token data in request for next middlewares/routes
+    req.user = decoded;
     next();
   });
 };
-
