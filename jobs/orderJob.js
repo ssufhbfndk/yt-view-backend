@@ -3,6 +3,8 @@ const processTempOrders = require('../services/processTempOrders');
 const deleteOldOrders = require('../services/cleanupOldOrders');
 const cleanupOldIpTracking = require('../services/cleanupIpTracking');
 
+
+
 // Every 5 minutes
 setInterval(processPendingOrders, 5 * 60 * 1000);
 
@@ -20,5 +22,9 @@ setInterval(() => {
   console.log("🧼 Running 2-minute IP log cleanup...");
   cleanupOldIpTracking();
 }, 2 * 60 * 1000);
+
+
+
+
 
 console.log('✅ Background jobs initialized:');
