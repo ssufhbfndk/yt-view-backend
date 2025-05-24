@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const dotenv = require("dotenv");
+const db = require('../config/db'); // ✅ Adjust the path as per your project
 
 dotenv.config();
 
@@ -8,7 +9,6 @@ const SECRET_KEY = process.env.SESSION_SECRET || "supersecretkey";
 // 🔹 Middleware to Protect Routes (with Refresh Logic)
 exports.verifyAdminToken = (req, res, next) => {
   const token = req.cookies.admin_token;
-  console.log(token);
   if (!token) {
     return res.status(401).json({ success: false, message: "Unauthorized: No token provided" });
   }
