@@ -1,24 +1,36 @@
-const processPendingOrders = require('../services/orderProcessor');
-const processTempOrders = require('../services/processTempOrders');
-const deleteOldOrders = require('../services/cleanupOldOrders');
-const cleanupOldIpTracking = require('../services/cleanupIpTracking');
+const cluster = require('cluster');
+const os = require('os');
 
-// Every 5 minutes
-setInterval(processPendingOrders, 5 * 60 * 1000);
+const numCPUs = os.cpus().length;
 
-// Every 1 minute
-setInterval(processTempOrders, 60 * 1000);
+if (cluster.isMaster) {
+  console.log(`Master ${process.pid} is running`);
 
-// Every 1 hour
-setInterval(() => {
-  console.log("🕒 Running hourly cleanup job...");
-  deleteOldOrders();
-}, 60 * 60 * 1000);
+  // Start 1 worker only for the job processor
+  const jobWorker = cluster.fork({ ROLE: 'job' });
 
-// Every 2 minutes
-setInterval(() => {
-  console.log("🧼 Running 2-minute IP log cleanup...");
-  cleanupOldIpTracking();
-}, 2 * 60 * 1000);
+  // Start remaining workers for the API server
+  for (let i = 1; i < numCPUs; i++) {
+    cluster.fork({ ROLE: 'api' });
+  }
 
-console.log('✅ Background jobs initialized in Master process only');
+  // Restart any worker if it dies
+  cluster.on('exit', (worker, code, signal) => {
+    console.log(`Worker ${worker.process.pid} died. Restarting...`);
+
+    // Recreate based on original role
+    const role = worker.process.env.ROLE;
+    cluster.fork({ ROLE: role });
+  });
+
+} else {
+  const role = process.env.ROLE;
+
+  if (role === 'job') {
+    console.log(`Job worker ${process.pid} started`);
+    require('./jobs/orderJob');
+  } else {
+    console.log(`API worker ${process.pid} started`);
+    require('./server');
+  }
+}
