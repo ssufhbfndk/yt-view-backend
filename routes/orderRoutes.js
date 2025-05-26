@@ -23,7 +23,7 @@ router.post("/fetch-order", async (req, res) => {
 
     await conn.query("START TRANSACTION");
 
-    // 1️⃣ Find order not used by this user and IP under 5
+    // 1️⃣ Find 1 random order not picked by user + IP < 5
     const [orders] = await conn.query(`
       SELECT o.* FROM orders o
       LEFT JOIN ${profileTable} p ON o.order_id = p.order_id
@@ -42,7 +42,7 @@ router.post("/fetch-order", async (req, res) => {
 
     const order = orders[0];
 
-    // 2️⃣ Update IP tracking
+    // 2️⃣ Track IP usage
     const [existingIP] = await conn.query(
       `SELECT * FROM order_ip_tracking WHERE order_id = ? AND ip_address = ?`,
       [order.order_id, ip]
@@ -60,59 +60,27 @@ router.post("/fetch-order", async (req, res) => {
       );
     }
 
-    // 3️⃣ Update user pick count
-    const [userPick] = await conn.query(
-      `SELECT * FROM order_user_pick_count WHERE order_id = ?`,
-      [order.order_id]
-    );
+    // 3️⃣ Decide where to send the order
+    const newRemaining = order.remaining - 1;
 
-    if (userPick.length > 0) {
+    if (newRemaining <= 0) {
       await conn.query(
-        `UPDATE order_user_pick_count SET user_count = user_count + 1 WHERE order_id = ?`,
-        [order.order_id]
+        `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp)
+         VALUES (?, ?, ?, NOW())`,
+        [order.order_id, order.video_link, order.quantity]
       );
     } else {
       await conn.query(
-        `INSERT INTO order_user_pick_count (order_id, user_count) VALUES (?, 1)`,
-        [order.order_id]
+        `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp)
+         VALUES (?, ?, ?, ?, NOW())`,
+        [order.order_id, order.video_link, order.quantity, newRemaining]
       );
     }
 
-    // 4️⃣ Fetch updated user_count
-    const [updatedPick] = await conn.query(
-      `SELECT user_count FROM order_user_pick_count WHERE order_id = ?`,
-      [order.order_id]
-    );
+    // 4️⃣ Remove from orders
+    await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
 
-    if (updatedPick.length > 0 && updatedPick[0].user_count >= 3) {
-      // remove from orders, move to temp or complete
-      const newRemaining = order.remaining - 1;
-
-      if (newRemaining <= 0) {
-        await conn.query(
-          `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp)
-           VALUES (?, ?, ?, NOW())`,
-          [order.order_id, order.video_link, order.quantity]
-        );
-
-        await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
-        await conn.query(`DELETE FROM order_user_pick_count WHERE order_id = ?`, [order.order_id]);
-
-      } else {
-        await conn.query(
-          `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp)
-           VALUES (?, ?, ?, ?, NOW())`,
-          [order.order_id, order.video_link, order.quantity, newRemaining]
-        );
-
-        await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
-      }
-    } else {
-      // Less than 3 user picks: decrement remaining
-      await conn.query(`UPDATE orders SET remaining = remaining - 1 WHERE order_id = ?`, [order.order_id]);
-    }
-
-    // 5️⃣ Add to user profile
+    // 5️⃣ Add to profile table
     await conn.query(
       `INSERT INTO ${profileTable} (order_id, timestamp) VALUES (?, NOW())`,
       [order.order_id]
