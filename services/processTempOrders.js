@@ -16,7 +16,7 @@ const processTempOrders = async () => {
       SELECT * FROM temp_orders
       WHERE (
         (video_link LIKE '%youtube.com/shorts%' OR video_link LIKE '%youtu.be/shorts%')
-        AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 30
+        AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 90
       )
       OR (
         (video_link NOT LIKE '%youtube.com/shorts%' AND video_link NOT LIKE '%youtu.be/shorts%')
