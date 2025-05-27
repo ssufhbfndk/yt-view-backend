@@ -8,8 +8,8 @@ const cleanupOldIpTracking = require('../services/cleanupIpTracking');
 // Every 5 minutes
 setInterval(processPendingOrders, 5 * 60 * 1000);
 
-// Every 1 minute
-setInterval(processTempOrders, 60 * 1000);
+// Every 30 sec
+setInterval(processTempOrders, 30 * 1000);
 
 // Every 1 hour
 setInterval(() => {

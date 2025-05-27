@@ -105,7 +105,7 @@ router.post("/fetch-order", async (req, res) => {
 router.post('/process', async (req, res) => {
   const { data } = req.body;
 
-  // Validate data to make sure it's not empty or malformed
+  // Validate that data is a non-empty array
   if (!data || !Array.isArray(data) || data.length === 0) {
     return res.status(400).json({ success: false, message: 'Invalid data format' });
   }
@@ -113,33 +113,41 @@ router.post('/process', async (req, res) => {
   const chunkSize = 3;
   const chunks = [];
 
-  // Chunking the data for batch processing
+  // Chunk the data into sets of 3
   for (let i = 0; i < data.length; i += chunkSize) {
     chunks.push(data.slice(i, i + chunkSize));
   }
 
+  const insertPending = `
+    INSERT INTO pending_orders (order_id, video_link, quantity, remaining)
+    VALUES (?, ?, ?, ?)
+  `;
+
+  const failedOrders = [];
+
   try {
     for (const chunk of chunks) {
       const [orderId, videoLink, quantity] = chunk;
-      const originalQuantity = parseInt(quantity);
+      const originalQuantity = parseInt(quantity || 0);
       const additional = Math.ceil(originalQuantity * 0.15);
       const remaining = originalQuantity + additional;
 
-      const insertPending = `
-        INSERT INTO pending_orders (order_id, video_link, quantity, remaining)
-        VALUES (?, ?, ?, ?)
-      `;
-
-      // Awaiting db insertion for each chunk
-      await db.queryAsync(insertPending, [orderId, videoLink, originalQuantity, remaining]);
+      try {
+        await db.queryAsync(insertPending, [orderId, videoLink, originalQuantity, remaining]);
+      } catch (err) {
+        console.warn(`Skipping duplicate or error for orderId: ${orderId}`, err.message);
+        failedOrders.push(orderId || 'unknown');
+      }
     }
 
-    // If everything succeeds, send success response
-    res.json({ success: true, message: 'Data saved to pending_orders, will be processed shortly.' });
+    res.json({
+      success: true,
+      message: 'Data processed. Some entries may have been skipped.',
+      failedOrders,
+    });
 
   } catch (err) {
-    // Handling errors if the DB operation fails
-    console.error('Error saving to pending_orders:', err);
+    console.error('Unexpected server error:', err);
     res.status(500).json({ success: false, message: 'Server Error' });
   }
 });

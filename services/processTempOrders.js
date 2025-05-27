@@ -16,7 +16,7 @@ const processTempOrders = async () => {
       SELECT * FROM temp_orders
       WHERE (
         (video_link LIKE '%youtube.com/shorts%' OR video_link LIKE '%youtu.be/shorts%')
-        AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 60
+        AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 30
       )
       OR (
         (video_link NOT LIKE '%youtube.com/shorts%' AND video_link NOT LIKE '%youtu.be/shorts%')
@@ -42,14 +42,12 @@ const processTempOrders = async () => {
           ON DUPLICATE KEY UPDATE remaining = VALUES(remaining)
         `, [order_id, video_link, quantity, remaining]);
 
-        console.log(`🔄 Order ${order_id} returned to orders table.`);
       } else {
         await conn.query(`
           INSERT INTO complete_orders (order_id, video_link, quantity, timestamp)
           VALUES (?, ?, ?, NOW())
         `, [order_id, video_link, quantity]);
 
-        console.log(`✅ Order ${order_id} moved to complete_orders.`);
       }
 
       await conn.query(
@@ -57,7 +55,6 @@ const processTempOrders = async () => {
         [order_id]
       );
 
-      console.log(`🗑️ Order ${order_id} deleted from temp_orders.`);
     }
 
     await conn.query('COMMIT');
