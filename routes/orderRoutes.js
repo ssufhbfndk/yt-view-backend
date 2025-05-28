@@ -23,13 +23,13 @@ router.post("/fetch-order", async (req, res) => {
 
     await conn.query("START TRANSACTION");
 
-    // 1️⃣ Find 1 random order not picked by user + IP < 5
+    // 1️⃣ Find 1 random order not picked by user + IP count < 3 (updated from 5 to 3)
     const [orders] = await conn.query(`
       SELECT o.* FROM orders o
       LEFT JOIN ${profileTable} p ON o.order_id = p.order_id
       LEFT JOIN order_ip_tracking ipt ON o.order_id = ipt.order_id AND ipt.ip_address = ?
       WHERE p.order_id IS NULL
-        AND (ipt.count IS NULL OR ipt.count < 5)
+        AND (ipt.count IS NULL OR ipt.count < 3)
       ORDER BY RAND()
       LIMIT 1
     `, [ip]);
@@ -60,27 +60,59 @@ router.post("/fetch-order", async (req, res) => {
       );
     }
 
-    // 3️⃣ Decide where to send the order
+    // 3️⃣ Calculate new remaining count
     const newRemaining = order.remaining - 1;
 
+    // 4️⃣ Get current concurrent_users value from orders table (just to be safe)
+    const [orderData] = await conn.query(
+      `SELECT concurrent_users FROM orders WHERE order_id = ?`,
+      [order.order_id]
+    );
+
+    if (orderData.length === 0) {
+      // Order missing? Rollback and respond error
+      await conn.query("ROLLBACK");
+      connection.release();
+      return res.status(500).json({ success: false, message: "Order not found" });
+    }
+
+    let concurrentUsers = orderData[0].concurrent_users;
+    concurrentUsers = concurrentUsers > 0 ? concurrentUsers - 1 : 0; // decrement by 1 minimum 0
+
     if (newRemaining <= 0) {
+      // remaining zero, order complete now
       await conn.query(
         `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp)
          VALUES (?, ?, ?, NOW())`,
         [order.order_id, order.video_link, order.quantity]
       );
+
+      // Delete from orders
+      await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
+
     } else {
-      await conn.query(
-        `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp)
-         VALUES (?, ?, ?, ?, NOW())`,
-        [order.order_id, order.video_link, order.quantity, newRemaining]
-      );
+      // remaining > 0
+
+      if (concurrentUsers <= 0) {
+        // concurrent_users zero or less, move to temp_orders & delete from orders
+        await conn.query(
+          `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp)
+           VALUES (?, ?, ?, ?, NOW())`,
+          [order.order_id, order.video_link, order.quantity, newRemaining]
+        );
+
+        await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
+
+      } else {
+        // concurrent_users still > 0, update orders table with new remaining and concurrent_users
+        await conn.query(
+          `UPDATE orders SET remaining = ?, concurrent_users = ? WHERE order_id = ?`,
+          [newRemaining, concurrentUsers, order.order_id]
+        );
+      }
     }
 
-    // 4️⃣ Remove from orders
-    await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
-
-    // 5️⃣ Add to profile table
+    // 5️⃣ Add to user profile table (track orders user has picked)
     await conn.query(
       `INSERT INTO ${profileTable} (order_id, timestamp) VALUES (?, NOW())`,
       [order.order_id]

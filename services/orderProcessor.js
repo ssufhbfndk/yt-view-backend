@@ -2,10 +2,7 @@ const db = require('../config/db');
 const delay = require('../utils/delay');
 const { getYouTubeVideoId, isValidYouTubeVideo } = require('../utils/youtube');
 
-
-
 // Background Function - Process pending orders
-
 const processPendingOrders = async () => {
   try {
     // Step 1 - Fetch pending_orders
@@ -74,16 +71,16 @@ const processPendingOrders = async () => {
           continue;
         }
 
-        // Step 2.4 - Insert into orders table
+        // ✅ Step 2.4 - Insert into orders table with concurrent_users = 2
         await db.queryAsync(`
-          INSERT INTO orders (order_id, video_link, quantity, remaining)
-          VALUES (?, ?, ?, ?)
-        `, [order_id, video_link, quantity, remaining]);
+          INSERT INTO orders (order_id, video_link, quantity, remaining, concurrent_users)
+          VALUES (?, ?, ?, ?, ?)
+        `, [order_id, video_link, quantity, remaining, 2]);
 
         await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
         console.log(`Order inserted successfully: ${order_id}`);
 
-        // 2 seconds delay after successful processing
+        // Delay after successful processing
         await delay(2000);
 
       } catch (innerError) {
