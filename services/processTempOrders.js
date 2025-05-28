@@ -11,22 +11,22 @@ const processTempOrders = async () => {
 
     await conn.query('START TRANSACTION');
 
-    // Fetch up to 500 eligible orders with randomized delay
+    // Fetch up to 500 eligible orders with updated randomized delay logic
     const [tempOrders] = await conn.query(`
       SELECT *, 
         CASE
           WHEN (video_link LIKE '%youtube.com/shorts%' OR video_link LIKE '%youtu.be/shorts%')
-            THEN FLOOR(100 + (RAND() * 100)) -- 100 to 200 sec
-          ELSE FLOOR(420 + (RAND() * 480))  -- 7 to 15 min
+            THEN FLOOR(100 + (RAND() * 60)) -- 100 to 160 sec
+          ELSE FLOOR(300 + (RAND() * 180)) -- 5 to 8 min (300 to 480 sec)
         END AS random_wait_time
       FROM temp_orders
       WHERE (
         (video_link LIKE '%youtube.com/shorts%' OR video_link LIKE '%youtu.be/shorts%')
-          AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= FLOOR(100 + (RAND() * 100))
+          AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= FLOOR(100 + (RAND() * 60))
       )
       OR (
         (video_link NOT LIKE '%youtube.com/shorts%' AND video_link NOT LIKE '%youtu.be/shorts%')
-          AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= FLOOR(420 + (RAND() * 480))
+          AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= FLOOR(300 + (RAND() * 180))
       )
       LIMIT 500
       FOR UPDATE
@@ -42,7 +42,7 @@ const processTempOrders = async () => {
       const { order_id, video_link, quantity, remaining } = tempOrder;
 
       const isShort = video_link.includes("youtube.com/shorts") || video_link.includes("youtu.be/shorts");
-      const concurrentUsers = isShort ? 2 : 5;
+      const concurrentUsers = 2; // Both shorts and long videos now have 2 users
 
       if (remaining > 0) {
         await conn.query(`

@@ -23,13 +23,13 @@ router.post("/fetch-order", async (req, res) => {
 
     await conn.query("START TRANSACTION");
 
-    // 1️⃣ Find 1 random order not picked by user + IP count < 3 (updated from 5 to 3)
+    // 1️⃣ Find 1 random order NOT picked by this user AND NOT picked by this IP before
     const [orders] = await conn.query(`
       SELECT o.* FROM orders o
       LEFT JOIN ${profileTable} p ON o.order_id = p.order_id
       LEFT JOIN order_ip_tracking ipt ON o.order_id = ipt.order_id AND ipt.ip_address = ?
       WHERE p.order_id IS NULL
-        AND (ipt.count IS NULL OR ipt.count < 3)
+        AND (ipt.count IS NULL OR ipt.count < 1)  -- IP hasn't picked this order yet
       ORDER BY RAND()
       LIMIT 1
     `, [ip]);
@@ -42,28 +42,24 @@ router.post("/fetch-order", async (req, res) => {
 
     const order = orders[0];
 
-    // 2️⃣ Track IP usage
+    // 2️⃣ Insert IP tracking record only if not exists (IP order pair is unique)
     const [existingIP] = await conn.query(
       `SELECT * FROM order_ip_tracking WHERE order_id = ? AND ip_address = ?`,
       [order.order_id, ip]
     );
 
-    if (existingIP.length > 0) {
-      await conn.query(
-        `UPDATE order_ip_tracking SET count = count + 1, timestamp = NOW() WHERE order_id = ? AND ip_address = ?`,
-        [order.order_id, ip]
-      );
-    } else {
+    if (existingIP.length === 0) {
       await conn.query(
         `INSERT INTO order_ip_tracking (order_id, ip_address, count, timestamp) VALUES (?, ?, 1, NOW())`,
         [order.order_id, ip]
       );
     }
+    // Note: We do NOT increment count because order is allocated only once per IP.
 
     // 3️⃣ Calculate new remaining count
     const newRemaining = order.remaining - 1;
 
-    // 4️⃣ Get current concurrent_users value from orders table (just to be safe)
+    // 4️⃣ Get current concurrent_users value from orders table
     const [orderData] = await conn.query(
       `SELECT concurrent_users FROM orders WHERE order_id = ?`,
       [order.order_id]
