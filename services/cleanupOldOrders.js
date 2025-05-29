@@ -11,7 +11,7 @@ const deleteOldOrders = async () => {
       return;
     }
 
-    const fixedTime = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24 hours ago
+    const fixedTime = new Date(Date.now() - 10 * 60 * 60 * 1000); // 10 hours ago
 
     for (const user of users) {
       const { username } = user;

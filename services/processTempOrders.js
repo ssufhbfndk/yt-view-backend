@@ -16,17 +16,17 @@ const processTempOrders = async () => {
       SELECT *, 
         CASE
           WHEN (video_link LIKE '%youtube.com/shorts%' OR video_link LIKE '%youtu.be/shorts%')
-            THEN FLOOR(90 + (RAND() * 60)) -- 90 to 150 sec
-          ELSE FLOOR(120 + (RAND() * 80)) -- 120 to 200 sec
+            THEN FLOOR(90 + (RAND() * 30)) -- 90 to 120 sec
+          ELSE FLOOR(180 + (RAND() * 120)) -- 180 to 300 sec
         END AS random_wait_time
       FROM temp_orders
       WHERE (
         (video_link LIKE '%youtube.com/shorts%' OR video_link LIKE '%youtu.be/shorts%')
-          AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= FLOOR(90 + (RAND() * 60))
+          AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= FLOOR(90 + (RAND() * 30))
       )
       OR (
         (video_link NOT LIKE '%youtube.com/shorts%' AND video_link NOT LIKE '%youtu.be/shorts%')
-          AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= FLOOR(120 + (RAND() * 80))
+          AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= FLOOR(180 + (RAND() * 120))
       )
       LIMIT 500
       FOR UPDATE
@@ -50,7 +50,6 @@ const processTempOrders = async () => {
           ON DUPLICATE KEY UPDATE remaining = VALUES(remaining), concurrent_users = VALUES(concurrent_users)
         `, [order_id, video_link, quantity, remaining, concurrentUsers]);
 
-        console.log(`🔄 Order ${order_id} returned to orders table with concurrent_users = ${concurrentUsers}.`);
       } else {
         await conn.query(`
           INSERT INTO complete_orders (order_id, video_link, quantity, timestamp)

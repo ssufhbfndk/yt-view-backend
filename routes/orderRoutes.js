@@ -23,14 +23,14 @@ router.post("/fetch-order", async (req, res) => {
 
     await conn.query("START TRANSACTION");
 
-    // Step 1: Fetch one order not already picked by this user and IP usage < 3
+    // Step 1: Fetch one order not already picked by this user and IP usage < 2
     const [orders] = await conn.query(
       `
         SELECT o.* FROM orders o
         LEFT JOIN ${profileTable} p ON o.order_id = p.order_id
         LEFT JOIN order_ip_tracking ipt ON o.order_id = ipt.order_id AND ipt.ip_address = ?
         WHERE p.order_id IS NULL
-          AND (ipt.count IS NULL OR ipt.count < 3)
+          AND (ipt.count IS NULL OR ipt.count < 2)
         ORDER BY RAND()
         LIMIT 1
       `,
