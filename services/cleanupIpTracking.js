@@ -6,7 +6,7 @@ const cleanupOldIpTracking = async () => {
 
     const result = await db.queryAsync(`
       DELETE FROM order_ip_tracking
-      WHERE TIMESTAMPDIFF(MINUTE, timestamp, NOW()) >= 30
+      WHERE TIMESTAMPDIFF(MINUTE, timestamp, NOW()) >= 60
     `);
 
     console.log(`✅ Deleted ${result.affectedRows} old IP tracking records.`);
