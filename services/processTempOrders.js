@@ -11,22 +11,17 @@ const processTempOrders = async () => {
 
     await conn.query('START TRANSACTION');
 
-    // Fetch up to 500 eligible orders
+    // Updated wait time: 10s for shorts, 20s for long videos
     const [tempOrders] = await conn.query(`
-      SELECT *, 
-        CASE
-          WHEN (video_link LIKE '%youtube.com/shorts%' OR video_link LIKE '%youtu.be/shorts%')
-            THEN FLOOR(90 + (RAND() * 30)) -- 90 to 120 sec
-          ELSE FLOOR(180 + (RAND() * 120)) -- 180 to 300 sec
-        END AS random_wait_time
+      SELECT *
       FROM temp_orders
       WHERE (
         (video_link LIKE '%youtube.com/shorts%' OR video_link LIKE '%youtu.be/shorts%')
-          AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= FLOOR(90 + (RAND() * 30))
+        AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 10
       )
       OR (
         (video_link NOT LIKE '%youtube.com/shorts%' AND video_link NOT LIKE '%youtu.be/shorts%')
-          AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= FLOOR(180 + (RAND() * 120))
+        AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 20
       )
       LIMIT 500
       FOR UPDATE
@@ -39,18 +34,19 @@ const processTempOrders = async () => {
     }
 
     for (const tempOrder of tempOrders) {
-      const { order_id, video_link, quantity, remaining } = tempOrder;
-
-      const concurrentUsers = 0; // 👈 Always zero when re-adding
+      const { order_id, video_link, quantity, remaining, delay } = tempOrder;
 
       if (remaining > 0) {
+        // Re-insert into orders table with same delay value
         await conn.query(`
-          INSERT INTO orders (order_id, video_link, quantity, remaining, concurrent_users)
+          INSERT INTO orders (order_id, video_link, quantity, remaining, delay)
           VALUES (?, ?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE remaining = VALUES(remaining), concurrent_users = VALUES(concurrent_users)
-        `, [order_id, video_link, quantity, remaining, concurrentUsers]);
+          ON DUPLICATE KEY UPDATE remaining = VALUES(remaining), delay = VALUES(delay)
+        `, [order_id, video_link, quantity, remaining, delay]);
 
+        console.log(`🔄 Order ${order_id} re-inserted into orders with delay=${delay}.`);
       } else {
+        // Move to complete_orders if no remaining
         await conn.query(`
           INSERT INTO complete_orders (order_id, video_link, quantity, timestamp)
           VALUES (?, ?, ?, NOW())
@@ -59,6 +55,7 @@ const processTempOrders = async () => {
         console.log(`✅ Order ${order_id} moved to complete_orders.`);
       }
 
+      // Delete from temp_orders
       await conn.query(
         `DELETE FROM temp_orders WHERE order_id = ?`,
         [order_id]
@@ -69,6 +66,7 @@ const processTempOrders = async () => {
 
     await conn.query('COMMIT');
     console.log(`🎉 Successfully processed ${tempOrders.length} orders.`);
+
   } catch (error) {
     console.error("❌ Error processing temp_orders:", error);
     if (connection) await connection.promise().query('ROLLBACK');

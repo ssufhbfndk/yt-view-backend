@@ -23,7 +23,7 @@ router.post("/fetch-order", async (req, res) => {
 
     await conn.query("START TRANSACTION");
 
-    // Step 1: Fetch one order not already picked by this user and IP usage < 2
+    // ✅ Step 1: Fetch one eligible order
     const [orders] = await conn.query(
       `
         SELECT o.* FROM orders o
@@ -31,6 +31,7 @@ router.post("/fetch-order", async (req, res) => {
         LEFT JOIN order_ip_tracking ipt ON o.order_id = ipt.order_id AND ipt.ip_address = ?
         WHERE p.order_id IS NULL
           AND (ipt.count IS NULL OR ipt.count < 2)
+          AND o.delay = true
         ORDER BY RAND()
         LIMIT 1
       `,
@@ -45,7 +46,7 @@ router.post("/fetch-order", async (req, res) => {
 
     const order = orders[0];
 
-    // Step 2: Track IP usage
+    // ✅ Step 2: Track IP usage
     const [existingIP] = await conn.query(
       `SELECT * FROM order_ip_tracking WHERE order_id = ? AND ip_address = ?`,
       [order.order_id, ip]
@@ -63,53 +64,34 @@ router.post("/fetch-order", async (req, res) => {
       );
     }
 
-    // Step 3: Calculate new remaining
+    // ✅ Step 3: Update remaining
     const newRemaining = order.remaining - 1;
 
-    // Step 4: Get latest concurrent_users from DB
-    const [orderData] = await conn.query(
-      `SELECT concurrent_users FROM orders WHERE order_id = ?`,
-      [order.order_id]
-    );
-
-    if (orderData.length === 0) {
-      await conn.query("ROLLBACK");
-      connection.release();
-      return res.status(500).json({ success: false, message: "Order not found" });
-    }
-
-    let concurrentUsers = orderData[0].concurrent_users;
-    concurrentUsers = concurrentUsers > 0 ? concurrentUsers - 1 : 0;
-
     if (newRemaining <= 0) {
-      // Order complete
+      // ✅ Order complete: move to complete_orders and delete from orders + order_delay
       await conn.query(
         `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) VALUES (?, ?, ?, NOW())`,
         [order.order_id, order.video_link, order.quantity]
       );
 
       await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
+      await conn.query(`DELETE FROM order_delay WHERE order_id = ?`, [order.order_id]);
 
     } else {
-      if (concurrentUsers <= 0) {
-        // Move to temp_orders
-        await conn.query(
-          `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, timestamp) VALUES (?, ?, ?, ?, NOW())`,
-          [order.order_id, order.video_link, order.quantity, newRemaining]
-        );
+      // ✅ Generate random delay between 90 and 300 seconds
+      const delaySeconds = Math.floor(Math.random() * (300 - 90 + 1)) + 90;
 
-        await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
+      // ✅ Order not complete: move to temp_orders with future timestamp
+      await conn.query(
+        `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, delay, timestamp) 
+         VALUES (?, ?, ?, ?, ?, NOW() + INTERVAL ? SECOND)`,
+        [order.order_id, order.video_link, order.quantity, newRemaining, order.delay, delaySeconds]
+      );
 
-      } else {
-        // Update order
-        await conn.query(
-          `UPDATE orders SET remaining = ?, concurrent_users = ? WHERE order_id = ?`,
-          [newRemaining, concurrentUsers, order.order_id]
-        );
-      }
+      await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
     }
 
-    // Step 5: Insert into user's profile table
+    // ✅ Step 4: Add to user's profile table
     await conn.query(
       `INSERT INTO ${profileTable} (order_id, timestamp) VALUES (?, NOW())`,
       [order.order_id]
@@ -128,8 +110,6 @@ router.post("/fetch-order", async (req, res) => {
     return res.status(500).json({ success: false, message: "Server Error" });
   }
 });
-
-module.exports = router;
 
 
 // API 1 - Receive Data from user and Save to pending_orders

@@ -4,7 +4,6 @@ const { getYouTubeVideoId, isValidYouTubeVideo } = require('../utils/youtube');
 
 const processPendingOrders = async () => {
   try {
-    // Step 1 - Fetch pending orders
     const pending = await db.queryAsync('SELECT * FROM pending_orders ORDER BY id ASC');
 
     console.log('Pending orders fetched:', pending);
@@ -20,11 +19,9 @@ const processPendingOrders = async () => {
       try {
         const { id, order_id, video_link, quantity, remaining } = order;
 
-        // Step 2.1 - Validate YouTube URL format
         const videoId = getYouTubeVideoId(video_link);
 
         if (!videoId) {
-          // Prevent duplicate insert into error_orders
           const [existsInError] = await db.queryAsync(
             `SELECT id FROM error_orders WHERE order_id = ? OR video_link = ? LIMIT 1`,
             [order_id, video_link]
@@ -43,7 +40,6 @@ const processPendingOrders = async () => {
           continue;
         }
 
-        // Step 2.2 - Check for duplicates in orders or temp_orders
         const existing = await db.queryAsync(`
           SELECT order_id FROM orders WHERE order_id = ? OR video_link = ?
           UNION
@@ -51,7 +47,6 @@ const processPendingOrders = async () => {
         `, [order_id, video_link, order_id, video_link]);
 
         if (existing && existing.length > 0) {
-          // Prevent duplicate insert into error_orders
           const [existsInError] = await db.queryAsync(
             `SELECT id FROM error_orders WHERE order_id = ? OR video_link = ? LIMIT 1`,
             [order_id, video_link]
@@ -70,7 +65,6 @@ const processPendingOrders = async () => {
           continue;
         }
 
-        // Step 2.3 - Validate YouTube video via API
         const { valid, reason } = await isValidYouTubeVideo(videoId);
 
         if (!valid) {
@@ -85,11 +79,17 @@ const processPendingOrders = async () => {
           continue;
         }
 
-        // ✅ Step 2.4 - Insert into orders (concurrent_users default = 0 in DB)
+        // ✅ Insert into orders with delay = TRUE
         await db.queryAsync(`
-          INSERT INTO orders (order_id, video_link, quantity, remaining)
-          VALUES (?, ?, ?, ?)
+          INSERT INTO orders (order_id, video_link, quantity, remaining, delay)
+          VALUES (?, ?, ?, ?, TRUE)
         `, [order_id, video_link, quantity, remaining]);
+
+        // ✅ Insert into order_delay with delay = TRUE
+        await db.queryAsync(`
+          INSERT INTO order_delay (order_id, delay)
+          VALUES (?, TRUE)
+        `, [order_id]);
 
         await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
         console.log(`Order inserted successfully: ${order_id}`);

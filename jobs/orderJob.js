@@ -2,8 +2,7 @@ const processPendingOrders = require('../services/orderProcessor');
 const processTempOrders = require('../services/processTempOrders');
 const deleteOldOrders = require('../services/cleanupOldOrders');
 const cleanupOldIpTracking = require('../services/cleanupIpTracking');
-
-
+const { checkAndUpdateDelayedOrders, processOrderDelays } = require('../services/updateDelayedOrders');
 
 // Every 5 minutes
 setInterval(processPendingOrders, 5 * 60 * 1000);
@@ -15,7 +14,7 @@ setInterval(processTempOrders, 30 * 1000);
 setInterval(() => {
   console.log("🕒 Running hourly cleanup job...");
   deleteOldOrders();
-}, 60 * 60 * 1000);
+}, 30 * 60 * 1000);
 
 // Every 2 minutes
 setInterval(() => {
@@ -23,6 +22,17 @@ setInterval(() => {
   cleanupOldIpTracking();
 }, 2 * 60 * 1000);
 
+// Run checkAndUpdateDelayedOrders every 2 minutes (120000 ms)
+setInterval(() => {
+  checkAndUpdateDelayedOrders()
+    .catch(err => console.error("Error in checkAndUpdateDelayedOrders:", err));
+}, 2 * 60 * 1000); // 2 minutes
+
+// Run processOrderDelays every 5 minutes (300000 ms)
+setInterval(() => {
+  processOrderDelays()
+    .catch(err => console.error("Error in processOrderDelays:", err));
+}, 5 * 60 * 1000); // 5 minutes
 
 
 
