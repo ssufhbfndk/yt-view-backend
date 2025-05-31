@@ -56,12 +56,16 @@ exports.logout = (req, res) => {
 // 🔹 Check User Token (Session Check)
 exports.checkUserSession = (req, res) => {
   if (!req.user) {
-    return res.status(401).json({ success: false, message: "Unauthorized: No user info" });
+    return res.status(200).json({
+      success: false,
+      message: "No active session or invalid token",
+    });
   }
 
-  res.json({
+  return res.status(200).json({
     success: true,
     message: "Session is active",
-    user: req.user
+    user: req.user,
   });
 };
+

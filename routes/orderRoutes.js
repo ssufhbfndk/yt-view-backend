@@ -30,7 +30,7 @@ router.post("/fetch-order", async (req, res) => {
         LEFT JOIN ${profileTable} p ON o.order_id = p.order_id
         LEFT JOIN order_ip_tracking ipt ON o.order_id = ipt.order_id AND ipt.ip_address = ?
         WHERE p.order_id IS NULL
-          AND (ipt.count IS NULL OR ipt.count < 2)
+          AND (ipt.count IS NULL OR ipt.count < 5)
           AND o.delay = true
         ORDER BY RAND()
         LIMIT 1
@@ -68,7 +68,7 @@ router.post("/fetch-order", async (req, res) => {
     const newRemaining = order.remaining - 1;
 
     if (newRemaining <= 0) {
-      // ✅ Order complete: move to complete_orders and delete from orders + order_delay
+      // ✅ Order complete: move to complete_orders
       await conn.query(
         `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) VALUES (?, ?, ?, NOW())`,
         [order.order_id, order.video_link, order.quantity]
@@ -78,10 +78,15 @@ router.post("/fetch-order", async (req, res) => {
       await conn.query(`DELETE FROM order_delay WHERE order_id = ?`, [order.order_id]);
 
     } else {
-      // ✅ Generate random delay between 90 and 300 seconds
-      const delaySeconds = Math.floor(Math.random() * (300 - 90 + 1)) + 90;
+      // ✅ Step 3.1: Determine delay based on type
+      let delaySeconds = 0;
+      if (order.type === "short") {
+        delaySeconds = Math.floor(Math.random() * (110 - 90 + 1)) + 90; // 90–110
+      } else {
+        delaySeconds = Math.floor(Math.random() * (270 - 240 + 1)) + 240; // 240–270
+      }
 
-      // ✅ Order not complete: move to temp_orders with future timestamp
+      // ✅ Move to temp_orders with delay
       await conn.query(
         `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, delay, timestamp) 
          VALUES (?, ?, ?, ?, ?, NOW() + INTERVAL ? SECOND)`,

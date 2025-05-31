@@ -34,17 +34,20 @@ const processTempOrders = async () => {
     }
 
     for (const tempOrder of tempOrders) {
-      const { order_id, video_link, quantity, remaining, delay } = tempOrder;
+      const { order_id, video_link, quantity, remaining, delay, type, duration } = tempOrder;
 
       if (remaining > 0) {
-        // Re-insert into orders table with same delay value
+        // Re-insert into orders table with same delay, plus type and duration
         await conn.query(`
-          INSERT INTO orders (order_id, video_link, quantity, remaining, delay)
-          VALUES (?, ?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE remaining = VALUES(remaining), delay = VALUES(delay)
-        `, [order_id, video_link, quantity, remaining, delay]);
+          INSERT INTO orders (order_id, video_link, quantity, remaining, delay, type, duration)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE 
+            remaining = VALUES(remaining), 
+            delay = VALUES(delay),
+            type = VALUES(type),
+            duration = VALUES(duration)
+        `, [order_id, video_link, quantity, remaining, delay, type, duration]);
 
-        console.log(`🔄 Order ${order_id} re-inserted into orders with delay=${delay}.`);
       } else {
         // Move to complete_orders if no remaining
         await conn.query(`
@@ -52,7 +55,7 @@ const processTempOrders = async () => {
           VALUES (?, ?, ?, NOW())
         `, [order_id, video_link, quantity]);
 
-        console.log(`✅ Order ${order_id} moved to complete_orders.`);
+       
       }
 
       // Delete from temp_orders
@@ -61,7 +64,7 @@ const processTempOrders = async () => {
         [order_id]
       );
 
-      console.log(`🗑️ Order ${order_id} deleted from temp_orders.`);
+     
     }
 
     await conn.query('COMMIT');

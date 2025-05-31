@@ -11,7 +11,7 @@ const deleteOldOrders = async () => {
       return;
     }
 
-    const fixedTime = new Date(Date.now() - 8 * 60 * 60 * 1000); // 8 hours ago
+    const fixedTime = new Date(Date.now() - 10 * 60 * 60 * 1000); // 8 hours ago
 
     for (const user of users) {
       const { username } = user;
@@ -21,11 +21,10 @@ const deleteOldOrders = async () => {
       const tableExists = await db.queryAsync(checkTableQuery, [profileTable]);
 
       if (tableExists.length === 0) {
-        console.log(`⚠️ Table ${profileTable} does not exist. Skipping.`);
         continue;
       }
 
-      console.log(`🧹 Cleaning up old orders from ${profileTable}...`);
+     
 
       const deleteQuery = `DELETE FROM ?? WHERE timestamp < ?`;
       const result = await db.queryAsync(deleteQuery, [profileTable, fixedTime]);
