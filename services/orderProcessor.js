@@ -67,17 +67,18 @@ const processPendingOrders = async () => {
         }
 
         const videoInfo = await getVideoTypeAndDuration(videoId, video_link);
-        const finalDuration = videoInfo.multipliedDuration || 60;
+        const finalDuration = videoInfo.finalDuration || 60;
 
         // Insert into orders table as before (no changes)
         await db.queryAsync(`
           INSERT INTO orders (order_id, video_link, quantity, remaining, delay, duration, type, timestamp)
           VALUES (?, ?, ?, ?, TRUE, ?, ?, NOW())
-        `, [order_id, video_link, quantity, remaining, finalDuration, videoInfo.type]);
+        `, [order_id, video_link, quantity, remaining/videoInfo.multiplier, finalDuration, videoInfo.type]);
 
-        // Generate random delay between 30 and 45 minutes (in seconds)
-        const minDelay = 30 * 60; // 1800 seconds
-        const maxDelay = 45 * 60; // 2700 seconds
+       // Generate random delay between 90 and 120 minutes (in seconds)
+const minDelay = 90 * 60;  // 5400 seconds
+const maxDelay = 120 * 60; // 7200 seconds
+
         const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
 
         // Insert or update delay in order_delay table
