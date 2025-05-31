@@ -86,11 +86,11 @@ router.post("/fetch-order", async (req, res) => {
         delaySeconds = Math.floor(Math.random() * (270 - 240 + 1)) + 240; // 240–270
       }
 
-      // ✅ Move to temp_orders with delay
+      // ✅ Move to temp_orders with delay, type and duration
       await conn.query(
-        `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, delay, timestamp) 
-         VALUES (?, ?, ?, ?, ?, NOW() + INTERVAL ? SECOND)`,
-        [order.order_id, order.video_link, order.quantity, newRemaining, order.delay, delaySeconds]
+        `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, delay, type, duration, timestamp) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW() + INTERVAL ? SECOND)`,
+        [order.order_id, order.video_link, order.quantity, newRemaining, order.delay, order.type, order.duration, delaySeconds]
       );
 
       await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
@@ -106,6 +106,7 @@ router.post("/fetch-order", async (req, res) => {
     connection.release();
 
     return res.status(200).json({ success: true, order });
+
   } catch (error) {
     console.error("❌ Error in /fetch-order:", error);
     if (connection) {
