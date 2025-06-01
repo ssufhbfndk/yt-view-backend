@@ -98,7 +98,7 @@ exports.logout = (req, res) => {
 };
 
 // ✅ Session Check
-eexports.checkUserSession = (req, res) => {
+exports.checkUserSession = (req, res) => {
   if (!req.user) {
     // 200 status with success false
     return res.status(200).json({
