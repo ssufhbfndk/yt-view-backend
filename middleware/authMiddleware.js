@@ -99,13 +99,22 @@ exports.verifyUserToken = (req, res, next) => {
       const user = results[0];
 
       if (user.status === 0 || user.status === false) {
-        return res.status(200).json({
-          success: false,
-          blocked: true,
-          sessionExpired: true,
-          message: "User is blocked by admin"
-        });
-      }
+  // Clear token in DB
+  const clearTokenQuery = "UPDATE user SET jwt_token = NULL WHERE id = ?";
+  db.query(clearTokenQuery, [user.id], (err) => {
+    if (err) {
+      console.error("Failed to clear token:", err);
+    }
+  });
+
+  return res.status(200).json({
+    success: false,
+    blocked: true,
+    sessionExpired: true,
+    message: "User is blocked by admin"
+  });
+}
+
 
       if (user.jwt_token !== token) {
         return res.status(200).json({
