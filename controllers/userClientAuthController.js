@@ -33,28 +33,13 @@ exports.userClientLogin = (req, res) => {
       });
     }
 
-    const storedToken = user.jwt_token;
-
-    // ✅ Check if already logged in with valid token
-    if (storedToken) {
-      try {
-        jwt.verify(storedToken, SECRET_KEY);
-        return res.status(403).json({
-          success: false,
-          message: "User already logged in on another device.",
-        });
-      } catch (err) {
-        console.log("Old token expired, proceeding to login.");
-      }
-    }
-
-    // ✅ Generate new token
+    // ✅ Always generate new token (ignore old token)
     const token = jwt.sign(
       { id: user.id, username: user.username },
-      SECRET_KEY,
+      SECRET_KEY
     );
 
-    // ✅ Update token in DB
+    // ✅ Always update token in DB
     const updateQuery = "UPDATE user SET jwt_token = ?, token_created_at = NOW() WHERE id = ?";
     db.query(updateQuery, [token, user.id], (err) => {
       if (err) {
