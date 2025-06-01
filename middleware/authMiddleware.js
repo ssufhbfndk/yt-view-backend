@@ -101,6 +101,7 @@ exports.verifyUserToken = (req, res, next) => {
       if (user.status === 0 || user.status === false) {
         return res.status(200).json({
           success: false,
+          blocked: true,
           sessionExpired: true,
           message: "User is blocked by admin"
         });
