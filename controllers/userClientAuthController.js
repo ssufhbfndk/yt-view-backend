@@ -1,9 +1,9 @@
 const db = require("../config/db");
 const jwt = require("jsonwebtoken");
 
-const SECRET_KEY = process.env.SESSION_SECRET || "supersecretkey"; // Secure Secret Key
+const SECRET_KEY = process.env.SESSION_SECRET || "supersecretkey";
 
-// 🔹 User Login (JWT-Based)
+// ✅ User Login (One Device Only)
 exports.userClientLogin = (req, res) => {
   const { username } = req.body;
 
@@ -12,10 +12,9 @@ exports.userClientLogin = (req, res) => {
   }
 
   const query = "SELECT * FROM user WHERE username = ?";
-
   db.query(query, [username], (err, results) => {
     if (err) {
-      console.error("Database error:", err);
+      console.error("DB error:", err);
       return res.status(500).json({ success: false, message: "Database error." });
     }
 
@@ -23,49 +22,96 @@ exports.userClientLogin = (req, res) => {
       return res.status(401).json({ success: false, message: "Invalid username" });
     }
 
-    const clientUser = results[0];
+    const user = results[0];
+    const storedToken = user.jwt_token;
 
-    // ✅ Generate JWT Token
-    const token = jwt.sign({ id: clientUser.id, username: clientUser.username }, SECRET_KEY, {
+    // Check if token exists and still valid
+    if (storedToken) {
+      try {
+        jwt.verify(storedToken, SECRET_KEY); // Valid token
+        return res.status(403).json({
+          success: false,
+          message: "User already logged in on another device.",
+        });
+      } catch (err) {
+        // Token expired — allow login
+        console.log("Old token expired, logging in again.");
+      }
+    }
+
+    // ✅ Generate new token
+    const token = jwt.sign({ id: user.id, username: user.username }, SECRET_KEY, {
       expiresIn: "24h",
     });
 
-    // ✅ Send Token in HTTP-Only Cookie
-    res.cookie("user_token", token, {
-      httpOnly: true,
-      secure: true, // Requires HTTPS
-      sameSite: "None",
-      maxAge: 24 * 60 * 60 * 1000, // 1 day expiration
-    });
+    // ✅ Store token in DB
+    const updateQuery = "UPDATE user SET jwt_token = ?, token_created_at = NOW() WHERE id = ?";
+    db.query(updateQuery, [token, user.id], (err) => {
+      if (err) {
+        console.error("DB update error:", err);
+        return res.status(500).json({ success: false, message: "Login failed." });
+      }
 
-    res.json({ 
-      success: true, 
-      message: "User logged in.", 
-      user: { id: clientUser.id, username: clientUser.username },
-      token: token // 🔥 ADD THIS
+      // ✅ Send HTTP-only cookie
+      res.cookie("user_token", token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "None",
+        maxAge: 24 * 60 * 60 * 1000,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: "User logged in successfully.",
+        user: { id: user.id, username: user.username },
+        token,
+      });
     });
   });
 };
 
-// 🔹 User Logout (Clears JWT Cookie)
+// ✅ Logout clears token
 exports.logout = (req, res) => {
-  res.clearCookie("user_token", { httpOnly: true, secure: true, sameSite: "None" });
-  res.json({ success: true, message: "User logged out" });
+  const token = req.cookies.user_token;
+
+  if (!token) {
+    return res.clearCookie("user_token").json({ success: true, message: "Already logged out" });
+  }
+
+  // Decode token to get user id
+  jwt.verify(token, SECRET_KEY, (err, decoded) => {
+    if (err || !decoded?.id) {
+      return res.clearCookie("user_token").json({ success: true, message: "Invalid session" });
+    }
+
+    const query = "UPDATE user SET jwt_token = NULL, token_created_at = NULL WHERE id = ?";
+    db.query(query, [decoded.id], (err) => {
+      if (err) {
+        console.error("Logout DB error:", err);
+        return res.status(500).json({ success: false, message: "Logout failed." });
+      }
+
+      res.clearCookie("user_token");
+      res.json({ success: true, message: "User logged out successfully" });
+    });
+  });
 };
 
-// 🔹 Check User Token (Session Check)
-exports.checkUserSession = (req, res) => {
+// ✅ Session Check
+eexports.checkUserSession = (req, res) => {
   if (!req.user) {
+    // 200 status with success false
     return res.status(200).json({
       success: false,
-      message: "No active session or invalid token",
+      sessionExpired: true,
+      message: "Session expired or not found."
     });
   }
 
   return res.status(200).json({
     success: true,
-    message: "Session is active",
+    sessionExpired: false,
+    message: "Session is active.",
     user: req.user,
   });
 };
-

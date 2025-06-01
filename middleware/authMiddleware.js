@@ -60,25 +60,44 @@ exports.verifyUserToken = (req, res, next) => {
     token = cookieToken;
   }
 
-  // No token case
   if (!token) {
-    return res.status(200).json({
-      success: false,
-      message: "No token provided",
+    // Yahan bhi 200 bhejenge lekin success false
+    return res.status(200).json({ 
+      success: false, 
+      sessionExpired: true, 
+      message: "No token provided" 
     });
   }
 
-  // Verify the token
   jwt.verify(token, SECRET_KEY, (err, decoded) => {
     if (err) {
       return res.status(200).json({
         success: false,
-        message: "Invalid or expired token",
+        sessionExpired: true,
+        message: "Invalid or expired token"
       });
     }
 
-    // Valid token, pass user to next
-    req.user = decoded;
-    next();
+    const query = "SELECT * FROM user WHERE id = ? AND jwt_token = ?";
+    db.query(query, [decoded.id, token], (err, results) => {
+      if (err) {
+        console.error("DB error:", err);
+        return res.status(500).json({ 
+          success: false, 
+          message: "Session check failed." 
+        });
+      }
+
+      if (results.length === 0) {
+        return res.status(200).json({
+          success: false,
+          sessionExpired: true,
+          message: "Token mismatch or expired"
+        });
+      }
+
+      req.user = decoded;
+      next();
+    });
   });
 };
