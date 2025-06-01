@@ -72,30 +72,51 @@ exports.userClientLogin = (req, res) => {
 
 // ✅ Logout clears token
 exports.logout = (req, res) => {
-  const token = req.cookies.user_token;
+  let token = null;
 
-  if (!token) {
-    return res.clearCookie("user_token").json({ success: true, message: "Already logged out" });
+  // 1. Try cookie
+  if (req.cookies && req.cookies.user_token) {
+    token = req.cookies.user_token;
   }
 
-  // Decode token to get user id
+  // 2. If not in cookie, try Authorization header
+  if (!token && req.headers.authorization) {
+    const parts = req.headers.authorization.split(" ");
+    if (parts.length === 2 && parts[0] === "Bearer") {
+      token = parts[1];
+    }
+  }
+
+  // 3. If token is still missing
+  if (!token) {
+    return res.status(401).json({ success: false, message: "No token provided." });
+  }
+
+  // 4. Verify and decode token
   jwt.verify(token, SECRET_KEY, (err, decoded) => {
     if (err || !decoded?.id) {
-      return res.clearCookie("user_token").json({ success: true, message: "Invalid session" });
+      return res.clearCookie("user_token").status(401).json({
+        success: false,
+        message: "Invalid or expired token.",
+      });
     }
 
+    const userId = decoded.id;
     const query = "UPDATE user SET jwt_token = NULL, token_created_at = NULL WHERE id = ?";
-    db.query(query, [decoded.id], (err) => {
+
+    db.query(query, [userId], (err) => {
       if (err) {
         console.error("Logout DB error:", err);
         return res.status(500).json({ success: false, message: "Logout failed." });
       }
 
+      // Clear cookie (harmless if mobile didn't use cookies)
       res.clearCookie("user_token");
-      res.json({ success: true, message: "User logged out successfully" });
+      res.status(200).json({ success: true, message: "User logged out successfully" });
     });
   });
 };
+
 
 // ✅ Session Check
 exports.checkUserSession = (req, res) => {
