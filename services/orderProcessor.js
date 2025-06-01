@@ -68,37 +68,37 @@ const processPendingOrders = async () => {
         const videoInfo = await getVideoTypeAndDuration(videoId, video_link);
         const finalDuration = videoInfo.finalDuration || 60;
 
-        // Determine delay based on type
+        // Generate random delay seconds (internal use only, not for saving in orders table)
         let randomDelaySeconds;
         if (videoInfo.type === 'short') {
-          const minDelay = 90 * 60;  // 90 minutes in seconds
-          const maxDelay = 120 * 60; // 120 minutes in seconds
+          const minDelay = 90 * 60;
+          const maxDelay = 120 * 60;
           randomDelaySeconds = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
         } else {
-          const minDelay = 60 * 60;  // 60 minutes in seconds
-          const maxDelay = 80 * 60;  // 80 minutes in seconds
+          const minDelay = 60 * 60;
+          const maxDelay = 80 * 60;
           randomDelaySeconds = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
         }
 
-        // Insert into orders table
+        // Insert into orders table — delay is boolean (1)
         await db.queryAsync(`
           INSERT INTO orders (order_id, video_link, quantity, remaining, delay, duration, type, timestamp)
-          VALUES (?, ?, ?, ?, TRUE, ?, ?, NOW())
+          VALUES (?, ?, ?, ?, 1, ?, ?, NOW())
         `, [order_id, video_link, quantity, remaining / videoInfo.multiplier, finalDuration, videoInfo.type]);
 
-        // Insert or update delay and type in order_delay table
+        // Insert or update into order_delay table — timestamp delayed by random seconds
         await db.queryAsync(`
-          INSERT INTO order_delay (order_id, delay, type)
-          VALUES (?, ?, ?)
+          INSERT INTO order_delay (order_id, delay, type, timestamp)
+          VALUES (?, ?, ?, NOW() + INTERVAL ? SECOND)
           ON DUPLICATE KEY UPDATE 
             delay = VALUES(delay),
-            type = VALUES(type)
-        `, [order_id, randomDelaySeconds, videoInfo.type]);
+            type = VALUES(type),
+            timestamp = VALUES(timestamp)
+        `, [order_id, 1, videoInfo.type, randomDelaySeconds]);
 
-        // Delete from pending_orders after processing
         await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
 
-        console.log(`✅ Order inserted: ${order_id} | Type: ${videoInfo.type} | Duration: ${finalDuration} | Delay: ${randomDelaySeconds} seconds`);
+        console.log(`✅ Order inserted: ${order_id} | Type: ${videoInfo.type} | Duration: ${finalDuration} | Delay: ${randomDelaySeconds}s`);
         await delay(2000);
 
       } catch (innerError) {
