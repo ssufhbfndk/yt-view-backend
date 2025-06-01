@@ -62,11 +62,10 @@ exports.verifyUserToken = (req, res, next) => {
   }
 
   if (!token) {
-    // Yahan bhi 200 bhejenge lekin success false
-    return res.status(200).json({ 
-      success: false, 
-      sessionExpired: true, 
-      message: "No token provided" 
+    return res.status(200).json({
+      success: false,
+      sessionExpired: true,
+      message: "No token provided"
     });
   }
 
@@ -79,13 +78,13 @@ exports.verifyUserToken = (req, res, next) => {
       });
     }
 
-    const query = "SELECT * FROM user WHERE id = ? AND jwt_token = ?";
-    db.query(query, [decoded.id, token], (err, results) => {
+    const query = "SELECT id, username, status, jwt_token FROM user WHERE id = ?";
+    db.query(query, [decoded.id], (err, results) => {
       if (err) {
         console.error("DB error:", err);
-        return res.status(500).json({ 
-          success: false, 
-          message: "Session check failed." 
+        return res.status(500).json({
+          success: false,
+          message: "Session check failed."
         });
       }
 
@@ -93,12 +92,42 @@ exports.verifyUserToken = (req, res, next) => {
         return res.status(200).json({
           success: false,
           sessionExpired: true,
-          message: "Token mismatch or expired"
+          message: "User not found"
         });
       }
 
-      req.user = decoded;
-      next();
+      const user = results[0];
+
+      if (user.status === 0 || user.status === false) {
+        return res.status(200).json({
+          success: false,
+          sessionExpired: true,
+          message: "User is blocked by admin"
+        });
+      }
+
+      if (user.jwt_token !== token) {
+        return res.status(200).json({
+          success: false,
+          sessionExpired: true,
+          message: "User logged in from another device"
+        });
+      }
+
+      // ✅ Update token_created_at to mark user as active now
+      const updateQuery = "UPDATE user SET token_created_at = NOW() WHERE id = ?";
+      db.query(updateQuery, [user.id], (err) => {
+        if (err) {
+          console.warn("Warning: Couldn't update token_created_at:", err);
+        }
+        // Continue anyway
+        req.user = {
+          id: user.id,
+          username: user.username,
+          status: user.status,
+        };
+        next();
+      });
     });
   });
 };

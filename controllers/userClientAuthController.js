@@ -23,28 +23,38 @@ exports.userClientLogin = (req, res) => {
     }
 
     const user = results[0];
+
+    // ❌ Blocked User Check
+    if (user.status === 0 || user.status === false) {
+      return res.status(403).json({
+        success: false,
+        blocked: true,
+        message: "User is blocked by admin.",
+      });
+    }
+
     const storedToken = user.jwt_token;
 
-    // Check if token exists and still valid
+    // ✅ Check if already logged in with valid token
     if (storedToken) {
       try {
-        jwt.verify(storedToken, SECRET_KEY); // Valid token
+        jwt.verify(storedToken, SECRET_KEY);
         return res.status(403).json({
           success: false,
           message: "User already logged in on another device.",
         });
       } catch (err) {
-        // Token expired — allow login
-        console.log("Old token expired, logging in again.");
+        console.log("Old token expired, proceeding to login.");
       }
     }
 
     // ✅ Generate new token
-    const token = jwt.sign({ id: user.id, username: user.username }, SECRET_KEY, {
-      expiresIn: "24h",
-    });
+    const token = jwt.sign(
+      { id: user.id, username: user.username },
+      SECRET_KEY,
+    );
 
-    // ✅ Store token in DB
+    // ✅ Update token in DB
     const updateQuery = "UPDATE user SET jwt_token = ?, token_created_at = NOW() WHERE id = ?";
     db.query(updateQuery, [token, user.id], (err) => {
       if (err) {
@@ -52,15 +62,8 @@ exports.userClientLogin = (req, res) => {
         return res.status(500).json({ success: false, message: "Login failed." });
       }
 
-      // ✅ Send HTTP-only cookie
-      res.cookie("user_token", token, {
-        httpOnly: true,
-        secure: true,
-        sameSite: "None",
-        maxAge: 24 * 60 * 60 * 1000,
-      });
-
-      return res.status(200).json({
+      // ✅ Send response
+      res.status(200).json({
         success: true,
         message: "User logged in successfully.",
         user: { id: user.id, username: user.username },
@@ -69,6 +72,7 @@ exports.userClientLogin = (req, res) => {
     });
   });
 };
+
 
 // ✅ Logout clears token
 exports.logout = (req, res) => {
