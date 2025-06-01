@@ -12,27 +12,35 @@ const updateDelayFlagsAndTimestamps = async () => {
 
     const now = new Date();
 
-    // 1. Handle orders with delay = true, check if timestamp expired
+    // delay = true → false
     const [delayTrueOrders] = await conn.query(
-      `SELECT order_id, timestamp FROM order_delay WHERE delay = true`
+      `SELECT od.order_id, od.timestamp, o.type 
+       FROM order_delay od
+       JOIN orders o ON od.order_id = o.order_id
+       WHERE od.delay = true`
     );
 
-    for (const { order_id, timestamp } of delayTrueOrders) {
+    for (const { order_id, timestamp, type } of delayTrueOrders) {
       const diffMinutes = (now - new Date(timestamp)) / (1000 * 60);
 
-      // Agar time expire ho gaya hai (current time timestamp se aage)
       if (diffMinutes >= 0) {
-        // Random delay 30-45 minutes
-        const randomDelayMinutes = 30 + Math.floor(Math.random() * 16);
+        let randomDelayMinutes;
+
+        if (type === 'short') {
+          // chhota delay
+          randomDelayMinutes = 30 + Math.floor(Math.random() * 16); // 30-45
+        } else {
+          // bada delay
+          randomDelayMinutes = 120 + Math.floor(Math.random() * 31); // 120-150
+        }
+
         const newTimestamp = new Date(now.getTime() + randomDelayMinutes * 60000);
 
-        // Update order_delay: delay = false, new timestamp
         await conn.query(
           `UPDATE order_delay SET delay = false, timestamp = ? WHERE order_id = ?`,
           [newTimestamp, order_id]
         );
 
-        // Update orders and temp_orders delay flags to false
         await conn.query(
           `UPDATE orders SET delay = false WHERE order_id = ? AND delay = true`,
           [order_id]
@@ -42,30 +50,39 @@ const updateDelayFlagsAndTimestamps = async () => {
           [order_id]
         );
 
-        console.log(`Order ${order_id} delay=true expired → set delay=false, timestamp +${randomDelayMinutes} mins`);
+        console.log(`Order ${order_id} delay=true expired → set delay=false, timestamp +${randomDelayMinutes} mins (type: ${type})`);
       }
     }
 
-    // 2. Handle orders with delay = false, check if timestamp expired
+    // delay = false → true
     const [delayFalseOrders] = await conn.query(
-      `SELECT order_id, timestamp FROM order_delay WHERE delay = false`
+      `SELECT od.order_id, od.timestamp, o.type 
+       FROM order_delay od
+       JOIN orders o ON od.order_id = o.order_id
+       WHERE od.delay = false`
     );
 
-    for (const { order_id, timestamp } of delayFalseOrders) {
+    for (const { order_id, timestamp, type } of delayFalseOrders) {
       const diffMinutes = (now - new Date(timestamp)) / (1000 * 60);
 
       if (diffMinutes >= 0) {
-        // Random delay 90-120 minutes
-        const randomDelayMinutes = 90 + Math.floor(Math.random() * 31);
+        let randomDelayMinutes;
+
+        if (type === 'short') {
+          // 90 - 120 min delay (jo pehle data insert mein tha)
+          randomDelayMinutes = 90 + Math.floor(Math.random() * 31);
+        } else {
+          // 60 - 80 min delay
+          randomDelayMinutes = 60 + Math.floor(Math.random() * 21);
+        }
+
         const newTimestamp = new Date(now.getTime() + randomDelayMinutes * 60000);
 
-        // Update order_delay: delay = true, new timestamp
         await conn.query(
           `UPDATE order_delay SET delay = true, timestamp = ? WHERE order_id = ?`,
           [newTimestamp, order_id]
         );
 
-        // Update orders and temp_orders delay flags to true
         await conn.query(
           `UPDATE orders SET delay = true WHERE order_id = ? AND delay = false`,
           [order_id]
@@ -75,7 +92,7 @@ const updateDelayFlagsAndTimestamps = async () => {
           [order_id]
         );
 
-        console.log(`Order ${order_id} delay=false expired → set delay=true, timestamp +${randomDelayMinutes} mins`);
+        console.log(`Order ${order_id} delay=false expired → set delay=true, timestamp +${randomDelayMinutes} mins (type: ${type})`);
       }
     }
 

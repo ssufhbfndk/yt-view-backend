@@ -92,9 +92,9 @@ const getVideoTypeAndDuration = async (videoId, url) => {
 
     const { snippet, contentDetails } = item;
     const liveBroadcastContent = snippet.liveBroadcastContent; // "none", "live", "upcoming"
-    const durationISO = contentDetails.duration; // ISO 8601 duration format
+    const durationISO = contentDetails.duration; // e.g., PT14S
 
-    // Helper: Convert ISO 8601 duration to seconds
+    // Convert ISO 8601 duration to seconds
     const isoDurationToSeconds = (isoDuration) => {
       const match = isoDuration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
       if (!match) return 0;
@@ -106,9 +106,8 @@ const getVideoTypeAndDuration = async (videoId, url) => {
 
     const durationSeconds = isoDurationToSeconds(durationISO);
 
-    // Determine video type based on URL and liveBroadcastContent
+    // Determine video type
     let type = 'long';
-
     try {
       const parsedUrl = new URL(url);
       if (parsedUrl.pathname.startsWith('/shorts/')) {
@@ -117,30 +116,34 @@ const getVideoTypeAndDuration = async (videoId, url) => {
         type = 'live';
       }
     } catch {
-      // Fallback if URL parse fails, fallback to live or long only
       if (liveBroadcastContent === 'live') {
         type = 'live';
       }
     }
 
-    // Duration logic
+    // Duration and multiplier logic
     let multiplier = 1;
     let finalDuration = durationSeconds;
 
     if (type === 'live' || type === 'long') {
-      finalDuration = 60; // fixed duration
+      finalDuration = 60;
       multiplier = 1;
     } else if (type === 'short') {
       if (durationSeconds < 25) {
         multiplier = 3;
         finalDuration = durationSeconds * multiplier;
-      } else if (durationSeconds >= 25) {
+
+        // Clamp between 55–60 if result is too high
+        if (finalDuration > 55) {
+          finalDuration = Math.floor(Math.random() * (60 - 55 + 1)) + 55;
+        }
+      } else {
         multiplier = 2;
-        if (durationSeconds >= 40) {
-          // Random between 65 and 70
-          finalDuration = Math.floor(Math.random() * (70 - 65 + 1)) + 65;
-        } else {
-          finalDuration = durationSeconds * multiplier;
+        finalDuration = durationSeconds * multiplier;
+
+        // Clamp between 60–65 if result is too high
+        if (finalDuration > 60) {
+          finalDuration = Math.floor(Math.random() * (65 - 60 + 1)) + 60;
         }
       }
     }
@@ -151,10 +154,12 @@ const getVideoTypeAndDuration = async (videoId, url) => {
       multiplier,
       finalDuration,
     };
+
   } catch (err) {
     console.error('YouTube API error:', err.response?.data || err.message);
     return { error: err.response?.data?.error?.message || err.message };
   }
 };
+
 
 module.exports = { getYouTubeVideoId, isValidYouTubeVideo, getVideoTypeAndDuration };

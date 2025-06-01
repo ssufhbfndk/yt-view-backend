@@ -18,7 +18,6 @@ const processPendingOrders = async () => {
         const { id, order_id, video_link, quantity, remaining } = order;
 
         const videoId = getYouTubeVideoId(video_link);
-
         if (!videoId) {
           await db.queryAsync(`
             INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp)
@@ -69,29 +68,37 @@ const processPendingOrders = async () => {
         const videoInfo = await getVideoTypeAndDuration(videoId, video_link);
         const finalDuration = videoInfo.finalDuration || 60;
 
-        // Insert into orders table as before (no changes)
+        // Determine delay based on type
+        let randomDelaySeconds;
+        if (videoInfo.type === 'short') {
+          const minDelay = 90 * 60;  // 90 minutes in seconds
+          const maxDelay = 120 * 60; // 120 minutes in seconds
+          randomDelaySeconds = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+        } else {
+          const minDelay = 60 * 60;  // 60 minutes in seconds
+          const maxDelay = 80 * 60;  // 80 minutes in seconds
+          randomDelaySeconds = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+        }
+
+        // Insert into orders table
         await db.queryAsync(`
           INSERT INTO orders (order_id, video_link, quantity, remaining, delay, duration, type, timestamp)
           VALUES (?, ?, ?, ?, TRUE, ?, ?, NOW())
-        `, [order_id, video_link, quantity, remaining/videoInfo.multiplier, finalDuration, videoInfo.type]);
+        `, [order_id, video_link, quantity, remaining / videoInfo.multiplier, finalDuration, videoInfo.type]);
 
-       // Generate random delay between 90 and 120 minutes (in seconds)
-const minDelay = 90 * 60;  // 5400 seconds
-const maxDelay = 120 * 60; // 7200 seconds
-
-        const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
-
-        // Insert or update delay in order_delay table
+        // Insert or update delay and type in order_delay table
         await db.queryAsync(`
-          INSERT INTO order_delay (order_id, delay)
-          VALUES (?, ?)
-          ON DUPLICATE KEY UPDATE delay = VALUES(delay)
-        `, [order_id, randomDelay]);
+          INSERT INTO order_delay (order_id, delay, type)
+          VALUES (?, ?, ?)
+          ON DUPLICATE KEY UPDATE 
+            delay = VALUES(delay),
+            type = VALUES(type)
+        `, [order_id, randomDelaySeconds, videoInfo.type]);
 
         // Delete from pending_orders after processing
         await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
 
-        console.log(`✅ Order inserted: ${order_id} | Type: ${videoInfo.type} | Duration: ${finalDuration} | Delay: ${randomDelay} seconds`);
+        console.log(`✅ Order inserted: ${order_id} | Type: ${videoInfo.type} | Duration: ${finalDuration} | Delay: ${randomDelaySeconds} seconds`);
         await delay(2000);
 
       } catch (innerError) {

@@ -17,11 +17,11 @@ const processTempOrders = async () => {
       FROM temp_orders
       WHERE (
         (video_link LIKE '%youtube.com/shorts%' OR video_link LIKE '%youtu.be/shorts%')
-        AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 10
+        AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 5
       )
       OR (
         (video_link NOT LIKE '%youtube.com/shorts%' AND video_link NOT LIKE '%youtu.be/shorts%')
-        AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 20
+        AND TIMESTAMPDIFF(SECOND, timestamp, NOW()) >= 5
       )
       LIMIT 500
       FOR UPDATE
