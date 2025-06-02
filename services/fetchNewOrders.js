@@ -1,7 +1,7 @@
 require('dotenv').config();
 const axios = require('axios');
 const db = require('../config/db');
-const getYouTubeVideoId = require('../utils/getYouTubeVideoId'); // adjust path if needed
+const getYouTubeVideoId = require('../utils/youtube'); // adjust path if needed
 
 const fetchNewOrders = async () => {
   try {
