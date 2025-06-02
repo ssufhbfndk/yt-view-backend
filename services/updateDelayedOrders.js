@@ -28,7 +28,7 @@ const updateDelayFlagsAndTimestamps = async () => {
 
         if (type === 'short') {
           // chhota delay
-          randomDelayMinutes = 30 + Math.floor(Math.random() * 16); // 30-45
+          randomDelayMinutes = 45 + Math.floor(Math.random() * 16); // 30-45
         } else {
           // bada delay
           randomDelayMinutes = 120 + Math.floor(Math.random() * 31); // 120-150
@@ -70,7 +70,7 @@ const updateDelayFlagsAndTimestamps = async () => {
 
         if (type === 'short') {
           // 90 - 120 min delay (jo pehle data insert mein tha)
-          randomDelayMinutes = 90 + Math.floor(Math.random() * 31);
+          randomDelayMinutes = 120 + Math.floor(Math.random() * 31);
         } else {
           // 60 - 80 min delay
           randomDelayMinutes = 60 + Math.floor(Math.random() * 21);

@@ -91,8 +91,8 @@ const getVideoTypeAndDuration = async (videoId, url) => {
     }
 
     const { snippet, contentDetails } = item;
-    const liveBroadcastContent = snippet.liveBroadcastContent; // "none", "live", "upcoming"
-    const durationISO = contentDetails.duration; // e.g., PT14S
+    const liveBroadcastContent = snippet.liveBroadcastContent;
+    const durationISO = contentDetails.duration;
 
     // Convert ISO 8601 duration to seconds
     const isoDurationToSeconds = (isoDuration) => {
@@ -129,25 +129,37 @@ const getVideoTypeAndDuration = async (videoId, url) => {
       finalDuration = 60;
       multiplier = 1;
     } else if (type === 'short') {
-      if (durationSeconds < 25) {
-        multiplier = 3;
-        finalDuration = durationSeconds * multiplier;
+      // Custom duration logic based on your conditions
+      if (type === 'short') {
+  if (durationSeconds <= 25) {
+    multiplier = 3;
+    finalDuration = durationSeconds * multiplier;
 
-        // Clamp between 55–60 if result is too high
-        if (finalDuration > 55) {
-          finalDuration = Math.floor(Math.random() * (60 - 55 + 1)) + 55;
-        }
-      } else {
-        multiplier = 2;
-        finalDuration = durationSeconds * multiplier;
-
-        // Clamp between 60–65 if result is too high
-        if (finalDuration > 60) {
-          finalDuration = Math.floor(Math.random() * (65 - 60 + 1)) + 60;
-        }
-      }
+    if (finalDuration >= 55) {
+      finalDuration = Math.floor(Math.random() * (65 - 55 + 1)) + 55; // Clamp to 55–65
     }
-
+  } else if (durationSeconds <= 35) {
+    multiplier = 2;
+    finalDuration = Math.floor(Math.random() * (50 - 40 + 1)) + 40; // 40–50
+  } else if (durationSeconds > 35 && durationSeconds < 45) {
+    multiplier = 2;
+    finalDuration = Math.floor(Math.random() * (60 - 50 + 1)) + 50; // 50–60
+  } else if (durationSeconds >= 45 && durationSeconds < 50) {
+    multiplier = 2;
+    finalDuration = Math.floor(Math.random() * (65 - 55 + 1)) + 55; // 55–65
+  } else if (durationSeconds >= 50 && durationSeconds < 55) {
+    multiplier = 2;
+    finalDuration = Math.floor(Math.random() * (70 - 60 + 1)) + 60; // 60–70
+  } else if (durationSeconds >= 55 && durationSeconds <= 60) {
+    multiplier = 2;
+    finalDuration = Math.floor(Math.random() * (75 - 65 + 1)) + 65; // 65–75
+  } else {
+    // If short video is more than 60 seconds, default to 60s
+    multiplier = 1;
+    finalDuration = 60;
+  }
+}
+    }
     return {
       type,
       originalDuration: durationSeconds,

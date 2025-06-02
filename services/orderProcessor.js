@@ -17,38 +17,39 @@ const processPendingOrders = async () => {
       try {
         const { id, order_id, video_link, quantity, remaining } = order;
 
-        const videoId = getYouTubeVideoId(video_link);
-        if (!videoId) {
-          await db.queryAsync(`
-            INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp)
-            VALUES (?, ?, ?, ?, NOW())
-            ON DUPLICATE KEY UPDATE timestamp = NOW()
-          `, [order_id, video_link, quantity, remaining]);
+   const videoId = getYouTubeVideoId(video_link);
+if (!videoId) {
+  await db.queryAsync(`
+    INSERT INTO error_orders (order_id, video_link, quantity, remaining, reason, timestamp)
+    VALUES (?, ?, ?, ?, ?, NOW())
+    ON DUPLICATE KEY UPDATE timestamp = NOW(), reason = VALUES(reason)
+  `, [order_id, video_link, quantity, remaining, 'Invalid YouTube link']);
 
-          await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
-          console.log(`Invalid YouTube link format: ${video_link}`);
-          await delay(2000);
-          continue;
-        }
+  await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
+  console.log(`Invalid YouTube link format: ${video_link}`);
+  await delay(2000);
+  continue;
+}
 
-        const existing = await db.queryAsync(`
-          SELECT order_id FROM orders WHERE order_id = ? OR video_link = ?
-          UNION
-          SELECT order_id FROM temp_orders WHERE order_id = ? OR video_link = ?
-        `, [order_id, video_link, order_id, video_link]);
+const existing = await db.queryAsync(`
+  SELECT order_id FROM orders WHERE order_id = ? OR video_link = ?
+  UNION
+  SELECT order_id FROM temp_orders WHERE order_id = ? OR video_link = ?
+`, [order_id, video_link, order_id, video_link]);
 
-        if (existing && existing.length > 0) {
-          await db.queryAsync(`
-            INSERT INTO error_orders (order_id, video_link, quantity, remaining, timestamp)
-            VALUES (?, ?, ?, ?, NOW())
-            ON DUPLICATE KEY UPDATE timestamp = NOW()
-          `, [order_id, video_link, quantity, remaining]);
+if (existing && existing.length > 0) {
+  await db.queryAsync(`
+    INSERT INTO error_orders (order_id, video_link, quantity, remaining, reason, timestamp)
+    VALUES (?, ?, ?, ?, ?, NOW())
+    ON DUPLICATE KEY UPDATE timestamp = NOW(), reason = VALUES(reason)
+  `, [order_id, video_link, quantity, remaining, 'Duplicate entry found']);
 
-          await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
-          console.log(`Duplicate entry found for order_id: ${order_id}`);
-          await delay(2000);
-          continue;
-        }
+  await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
+  console.log(`Duplicate entry found for order_id: ${order_id}`);
+  await delay(2000);
+  continue;
+}
+
 
         const { valid, reason } = await isValidYouTubeVideo(videoId);
 

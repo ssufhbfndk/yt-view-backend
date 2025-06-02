@@ -83,7 +83,7 @@ router.post("/fetch-order", async (req, res) => {
       if (order.type === "short") {
         delaySeconds = Math.floor(Math.random() * (110 - 90 + 1)) + 90; // 90–110
       } else {
-        const delaySeconds = Math.floor(Math.random() * (20 - 10 + 1)) + 10;
+         delaySeconds = Math.floor(Math.random() * (200 - 10 + 1)) + 100;
       }
 
       // ✅ Move to temp_orders with delay, type and duration
