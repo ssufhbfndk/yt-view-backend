@@ -30,7 +30,7 @@ router.post("/fetch-order", async (req, res) => {
         LEFT JOIN ${profileTable} p ON o.order_id = p.order_id
         LEFT JOIN order_ip_tracking ipt ON o.order_id = ipt.order_id AND ipt.ip_address = ?
         WHERE p.order_id IS NULL
-          AND (ipt.count IS NULL OR ipt.count < 5)
+          AND (ipt.count IS NULL OR ipt.count < 3)
           AND o.delay = true
         ORDER BY RAND()
         LIMIT 1
@@ -81,9 +81,9 @@ router.post("/fetch-order", async (req, res) => {
       // ✅ Step 3.1: Determine delay based on type
       let delaySeconds = 0;
       if (order.type === "short") {
-        delaySeconds = Math.floor(Math.random() * (110 - 90 + 1)) + 90; // 90–110
+        delaySeconds = Math.floor(Math.random() * (100 - 90 + 1)) + 90; // 90–100
       } else {
-         delaySeconds = Math.floor(Math.random() * (200 - 10 + 1)) + 100;
+         delaySeconds = Math.floor(Math.random() * (260 - 10 + 1)) + 240;
       }
 
       // ✅ Move to temp_orders with delay, type and duration

@@ -76,8 +76,8 @@ if (existing && existing.length > 0) {
           const maxDelay = 120 * 60;
           randomDelaySeconds = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
         } else {
-          const minDelay = 60 * 60;
-          const maxDelay = 80 * 60;
+          const minDelay = 40 * 60;
+          const maxDelay = 60 * 60;
           randomDelaySeconds = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
         }
 

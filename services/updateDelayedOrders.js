@@ -27,11 +27,11 @@ const updateDelayFlagsAndTimestamps = async () => {
         let randomDelayMinutes;
 
         if (type === 'short') {
-          // chhota delay
-          randomDelayMinutes = 45 + Math.floor(Math.random() * 16); // 30-45
+          // 👇 45-60 mins delay
+          randomDelayMinutes = 45 + Math.floor(Math.random() * 16);
         } else {
-          // bada delay
-          randomDelayMinutes = 120 + Math.floor(Math.random() * 31); // 120-150
+          // 👇 150-180 mins delay
+          randomDelayMinutes = 150 + Math.floor(Math.random() * 31);
         }
 
         const newTimestamp = new Date(now.getTime() + randomDelayMinutes * 60000);
@@ -50,7 +50,7 @@ const updateDelayFlagsAndTimestamps = async () => {
           [order_id]
         );
 
-        console.log(`Order ${order_id} delay=true expired → set delay=false, timestamp +${randomDelayMinutes} mins (type: ${type})`);
+        
       }
     }
 
@@ -69,11 +69,11 @@ const updateDelayFlagsAndTimestamps = async () => {
         let randomDelayMinutes;
 
         if (type === 'short') {
-          // 90 - 120 min delay (jo pehle data insert mein tha)
-          randomDelayMinutes = 120 + Math.floor(Math.random() * 31);
+          // 👇 90–120 mins delay
+          randomDelayMinutes = 90 + Math.floor(Math.random() * 31);
         } else {
-          // 60 - 80 min delay
-          randomDelayMinutes = 60 + Math.floor(Math.random() * 21);
+          // 👇 60–80 mins delay
+          randomDelayMinutes = 40 + Math.floor(Math.random() * 21);
         }
 
         const newTimestamp = new Date(now.getTime() + randomDelayMinutes * 60000);
@@ -92,7 +92,7 @@ const updateDelayFlagsAndTimestamps = async () => {
           [order_id]
         );
 
-        console.log(`Order ${order_id} delay=false expired → set delay=true, timestamp +${randomDelayMinutes} mins (type: ${type})`);
+       
       }
     }
 

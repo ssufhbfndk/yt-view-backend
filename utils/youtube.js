@@ -150,13 +150,13 @@ const getVideoTypeAndDuration = async (videoId, url) => {
   } else if (durationSeconds >= 50 && durationSeconds < 55) {
     multiplier = 2;
     finalDuration = Math.floor(Math.random() * (70 - 60 + 1)) + 60; // 60–70
-  } else if (durationSeconds >= 55 && durationSeconds <= 60) {
+  } else if (durationSeconds >= 55 && durationSeconds == 60) {
     multiplier = 2;
     finalDuration = Math.floor(Math.random() * (75 - 65 + 1)) + 65; // 65–75
   } else {
     // If short video is more than 60 seconds, default to 60s
     multiplier = 1;
-    finalDuration = 60;
+    finalDuration = 61;
   }
 }
     }
