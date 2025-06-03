@@ -20,10 +20,9 @@ router.post("/fetch-order", async (req, res) => {
   try {
     connection = await db.getConnection();
     const conn = connection.promise();
-
     await conn.query("START TRANSACTION");
 
-    // Step 1: Fetch one eligible order
+    // 🔒 Lock order row
     const [orders] = await conn.query(
       `
       SELECT o.* FROM orders o
@@ -34,6 +33,7 @@ router.post("/fetch-order", async (req, res) => {
         AND o.delay = true
       ORDER BY RAND()
       LIMIT 1
+      FOR UPDATE
       `,
       [ip]
     );
@@ -46,20 +46,19 @@ router.post("/fetch-order", async (req, res) => {
 
     const order = orders[0];
 
-    // Step 2: Check if order already in profile table with FOR UPDATE lock (to prevent race)
-    const [existing] = await conn.query(
-      `SELECT order_id FROM ${profileTable} WHERE order_id = ? FOR UPDATE`,
+    // ✅ Double check profile table to avoid race condition
+    const [existingProfile] = await conn.query(
+      `SELECT 1 FROM ${profileTable} WHERE order_id = ?`,
       [order.order_id]
     );
 
-    if (existing.length > 0) {
-      // Order already picked by this user, rollback and respond
+    if (existingProfile.length > 0) {
       await conn.query("ROLLBACK");
       connection.release();
-      return res.status(409).json({ success: false, message: "Order already picked" });
+      return res.status(409).json({ success: false, message: "Order already processed" });
     }
 
-    // Step 3: Track IP usage
+    // ✅ Update IP tracking
     const [existingIP] = await conn.query(
       `SELECT * FROM order_ip_tracking WHERE order_id = ? AND ip_address = ?`,
       [order.order_id, ip]
@@ -77,29 +76,23 @@ router.post("/fetch-order", async (req, res) => {
       );
     }
 
-    // Step 4: Update remaining and move order accordingly
     const newRemaining = order.remaining - 1;
 
     if (newRemaining <= 0) {
-      // Order complete: move to complete_orders
       await conn.query(
         `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) VALUES (?, ?, ?, NOW())`,
         [order.order_id, order.video_link, order.quantity]
       );
-
       await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
       await conn.query(`DELETE FROM order_delay WHERE order_id = ?`, [order.order_id]);
-
     } else {
-      // Determine delay based on type
       let delaySeconds = 0;
       if (order.type === "short") {
-        delaySeconds = Math.floor(Math.random() * (100 - 90 + 1)) + 90; // 90–100
+        delaySeconds = Math.floor(Math.random() * 11) + 90; // 90–100
       } else {
-        delaySeconds = Math.floor(Math.random() * (260 - 10 + 1)) + 240;
+        delaySeconds = Math.floor(Math.random() * 21) + 240; // 240–260
       }
 
-      // Move to temp_orders with delay etc.
       await conn.query(
         `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, delay, type, duration, timestamp) 
          VALUES (?, ?, ?, ?, ?, ?, ?, NOW() + INTERVAL ? SECOND)`,
@@ -109,7 +102,7 @@ router.post("/fetch-order", async (req, res) => {
       await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
     }
 
-    // Step 5: Add to user's profile table
+    // ✅ Final: Insert into profile table (log that this user has taken this order)
     await conn.query(
       `INSERT INTO ${profileTable} (order_id, timestamp) VALUES (?, NOW())`,
       [order.order_id]
