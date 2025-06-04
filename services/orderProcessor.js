@@ -17,39 +17,38 @@ const processPendingOrders = async () => {
       try {
         const { id, order_id, video_link, quantity, remaining } = order;
 
-   const videoId = getYouTubeVideoId(video_link);
-if (!videoId) {
-  await db.queryAsync(`
-    INSERT INTO error_orders (order_id, video_link, quantity, remaining, reason, timestamp)
-    VALUES (?, ?, ?, ?, ?, NOW())
-    ON DUPLICATE KEY UPDATE timestamp = NOW(), reason = VALUES(reason)
-  `, [order_id, video_link, quantity, remaining, 'Invalid YouTube link']);
+        const videoId = getYouTubeVideoId(video_link);
+        if (!videoId) {
+          await db.queryAsync(`
+            INSERT INTO error_orders (order_id, video_link, quantity, remaining, reason, timestamp)
+            VALUES (?, ?, ?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE timestamp = NOW(), reason = VALUES(reason)
+          `, [order_id, video_link, quantity, remaining, 'Invalid YouTube link']);
 
-  await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
-  console.log(`Invalid YouTube link format: ${video_link}`);
-  await delay(2000);
-  continue;
-}
+          await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
+          console.log(`Invalid YouTube link format: ${video_link}`);
+          await delay(2000);
+          continue;
+        }
 
-const existing = await db.queryAsync(`
-  SELECT order_id FROM orders WHERE order_id = ? OR video_link = ?
-  UNION
-  SELECT order_id FROM temp_orders WHERE order_id = ? OR video_link = ?
-`, [order_id, video_link, order_id, video_link]);
+        const existing = await db.queryAsync(`
+          SELECT order_id FROM orders WHERE order_id = ? OR video_link = ?
+          UNION
+          SELECT order_id FROM temp_orders WHERE order_id = ? OR video_link = ?
+        `, [order_id, video_link, order_id, video_link]);
 
-if (existing && existing.length > 0) {
-  await db.queryAsync(`
-    INSERT INTO error_orders (order_id, video_link, quantity, remaining, reason, timestamp)
-    VALUES (?, ?, ?, ?, ?, NOW())
-    ON DUPLICATE KEY UPDATE timestamp = NOW(), reason = VALUES(reason)
-  `, [order_id, video_link, quantity, remaining, 'Duplicate entry found']);
+        if (existing && existing.length > 0) {
+          await db.queryAsync(`
+            INSERT INTO error_orders (order_id, video_link, quantity, remaining, reason, timestamp)
+            VALUES (?, ?, ?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE timestamp = NOW(), reason = VALUES(reason)
+          `, [order_id, video_link, quantity, remaining, 'Duplicate entry found']);
 
-  await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
-  console.log(`Duplicate entry found for order_id: ${order_id}`);
-  await delay(2000);
-  continue;
-}
-
+          await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
+          console.log(`Duplicate entry found for order_id: ${order_id}`);
+          await delay(2000);
+          continue;
+        }
 
         const { valid, reason } = await isValidYouTubeVideo(videoId);
 
@@ -69,27 +68,24 @@ if (existing && existing.length > 0) {
         const videoInfo = await getVideoTypeAndDuration(videoId, video_link);
         const finalDuration = videoInfo.finalDuration || 60;
 
-        // Generate random delay seconds (internal use only, not for saving in orders table)
-       // Generate random delay seconds (internal use only, not for saving in orders table)
-let randomDelaySeconds;
-if (videoInfo.type === 'short') {
-  const minDelay = 100 * 60; // 100 minutes
-  const maxDelay = 120 * 60; // 120 minutes
-  randomDelaySeconds = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
-} else {
-  const minDelay = 50 * 60; // 50 minutes
-  const maxDelay = 70 * 60; // 70 minutes
-  randomDelaySeconds = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
-}
+        let randomDelaySeconds;
+        if (videoInfo.type === 'short') {
+          const minDelay = 100 * 60;
+          const maxDelay = 120 * 60;
+          randomDelaySeconds = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+        } else {
+          const minDelay = 50 * 60;
+          const maxDelay = 70 * 60;
+          randomDelaySeconds = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+        }
 
-
-        // Insert into orders table — delay is boolean (1)
+        // Insert into orders table — delay = 0
         await db.queryAsync(`
           INSERT INTO orders (order_id, video_link, quantity, remaining, delay, duration, type, timestamp)
-          VALUES (?, ?, ?, ?, 1, ?, ?, NOW())
+          VALUES (?, ?, ?, ?, 0, ?, ?, NOW())
         `, [order_id, video_link, quantity, remaining / videoInfo.multiplier, finalDuration, videoInfo.type]);
 
-        // Insert or update into order_delay table — timestamp delayed by random seconds
+        // Insert into order_delay table — delay = 0
         await db.queryAsync(`
           INSERT INTO order_delay (order_id, delay, type, timestamp)
           VALUES (?, ?, ?, NOW() + INTERVAL ? SECOND)
@@ -97,7 +93,7 @@ if (videoInfo.type === 'short') {
             delay = VALUES(delay),
             type = VALUES(type),
             timestamp = VALUES(timestamp)
-        `, [order_id, 1, videoInfo.type, randomDelaySeconds]);
+        `, [order_id, 0, videoInfo.type, randomDelaySeconds]);
 
         await db.queryAsync('DELETE FROM pending_orders WHERE id = ?', [id]);
 
