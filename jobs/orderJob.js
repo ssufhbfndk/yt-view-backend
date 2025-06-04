@@ -2,10 +2,10 @@ const processPendingOrders = require('../services/orderProcessor');
 const processTempOrders = require('../services/processTempOrders');
 const deleteOldOrders = require('../services/cleanupOldOrders');
 const cleanupOldIpTracking = require('../services/cleanupIpTracking');
-const updateDelayFlagsAndTimestamps = require('../services/updateDelayedOrders');
+const {setDelayTrue,setDelayFalse} = require('../services/updateDelayedOrders');
 
-// Every 5 minutes
-setInterval(processPendingOrders, 5 * 60 * 1000);
+// Every 3 sec
+setInterval(processPendingOrders, 3 * 1000);
 
 // Every 30 sec
 setInterval(processTempOrders, 30 * 1000);
@@ -24,9 +24,14 @@ setInterval(() => {
 
 // Run checkAndUpdateDelayedOrders every 2 minutes (120000 ms)
 setInterval(() => {
-  updateDelayFlagsAndTimestamps()
+  setDelayTrue()
     .catch(err => console.error("Error in checkAndUpdateDelayedOrders:", err));
 }, 2 * 60 * 1000); // 2 minutes
+
+setInterval(() => {
+  setDelayFalse()
+    .catch(err => console.error("Error in checkAndUpdateDelayedOrders:", err));
+}, 3 * 60 * 1000); // 3 minutes
 
 
 console.log('✅ Background jobs initialized:');
