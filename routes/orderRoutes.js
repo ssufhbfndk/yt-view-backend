@@ -24,19 +24,20 @@ router.post("/fetch-order", async (req, res) => {
 
     // 🔒 Lock order row
     const [orders] = await conn.query(
-      `
-      SELECT o.* FROM orders o
-      LEFT JOIN ${profileTable} p ON o.order_id = p.order_id
-      LEFT JOIN order_ip_tracking ipt ON o.order_id = ipt.order_id AND ipt.ip_address = ?
-      WHERE p.order_id IS NULL
-        AND (ipt.count IS NULL OR ipt.count < 3)
-        AND o.delay = true
-      ORDER BY RAND()
-      LIMIT 1
-      FOR UPDATE
-      `,
-      [ip]
-    );
+  `
+  SELECT o.* FROM orders o
+  LEFT JOIN ${profileTable} p ON o.order_id = p.order_id
+  LEFT JOIN order_ip_tracking ipt ON o.order_id = ipt.order_id AND ipt.ip_address = ?
+  WHERE p.order_id IS NULL
+    AND (ipt.count IS NULL OR ipt.count < 3)
+    AND o.delay = false   -- ✅ CHANGED THIS LINE
+  ORDER BY RAND()
+  LIMIT 1
+  FOR UPDATE
+  `,
+  [ip]
+);
+
 
     if (orders.length === 0) {
       await conn.query("COMMIT");

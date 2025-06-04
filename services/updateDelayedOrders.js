@@ -12,7 +12,7 @@ const updateDelayFlagsAndTimestamps = async () => {
 
     const now = new Date();
 
-    // delay = true → false
+    // ✅ delay = true → false
     const [delayTrueOrders] = await conn.query(
       `SELECT od.order_id, od.timestamp, o.type 
        FROM order_delay od
@@ -27,11 +27,11 @@ const updateDelayFlagsAndTimestamps = async () => {
         let randomDelayMinutes;
 
         if (type === 'short') {
-          // 👇 45-60 mins delay
-          randomDelayMinutes = 45 + Math.floor(Math.random() * 16);
+          // ✅ 100–120 mins
+          randomDelayMinutes = 100 + Math.floor(Math.random() * 21);
         } else {
-          // 👇 150-180 mins delay
-          randomDelayMinutes = 150 + Math.floor(Math.random() * 31);
+          // ✅ 50–70 mins
+          randomDelayMinutes = 50 + Math.floor(Math.random() * 21);
         }
 
         const newTimestamp = new Date(now.getTime() + randomDelayMinutes * 60000);
@@ -49,12 +49,10 @@ const updateDelayFlagsAndTimestamps = async () => {
           `UPDATE temp_orders SET delay = false WHERE order_id = ? AND delay = true`,
           [order_id]
         );
-
-        
       }
     }
 
-    // delay = false → true
+    // ✅ delay = false → true
     const [delayFalseOrders] = await conn.query(
       `SELECT od.order_id, od.timestamp, o.type 
        FROM order_delay od
@@ -69,11 +67,11 @@ const updateDelayFlagsAndTimestamps = async () => {
         let randomDelayMinutes;
 
         if (type === 'short') {
-          // 👇 90–120 mins delay
-          randomDelayMinutes = 90 + Math.floor(Math.random() * 31);
+          // ✅ 45–60 mins
+          randomDelayMinutes = 45 + Math.floor(Math.random() * 16);
         } else {
-          // 👇 60–80 mins delay
-          randomDelayMinutes = 40 + Math.floor(Math.random() * 21);
+          // ✅ 120–150 mins
+          randomDelayMinutes = 120 + Math.floor(Math.random() * 31);
         }
 
         const newTimestamp = new Date(now.getTime() + randomDelayMinutes * 60000);
@@ -91,8 +89,6 @@ const updateDelayFlagsAndTimestamps = async () => {
           `UPDATE temp_orders SET delay = true WHERE order_id = ? AND delay = false`,
           [order_id]
         );
-
-       
       }
     }
 
