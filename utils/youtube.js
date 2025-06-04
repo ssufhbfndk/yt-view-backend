@@ -41,43 +41,43 @@ const getYouTubeVideoId = (url) => {
 
 // Helper: Validate with YouTube API
 const isValidYouTubeVideo = async (videoId) => {
-  const url = `https://www.googleapis.com/youtube/v3/videos?part=status,player,snippet&id=${videoId}&key=${YOUTUBE_API_KEY}`;
+  const url = `https://www.googleapis.com/youtube/v3/videos?part=status,snippet,contentDetails&id=${videoId}&key=${YOUTUBE_API_KEY}`;
+
   try {
     const response = await axios.get(url);
     const item = response.data.items[0];
+
     if (!item) {
       return { valid: false, reason: 'Video not found' };
     }
 
-    const { status, player, snippet } = item;
+    const { status, snippet, contentDetails } = item;
 
-    // Check embeddable
-    if (!status.embeddable) {
-      return { valid: false, reason: 'Video not embeddable' };
-    }
-
-    // Check privacy public
+    // ❌ Privacy check
     if (status.privacyStatus !== 'public') {
       return { valid: false, reason: `Video privacy: ${status.privacyStatus}` };
     }
 
-    // Check player HTML se "Video unavailable" na ho
-    if (player.embedHtml.includes('Video unavailable')) {
-      return { valid: false, reason: 'Embed shows video unavailable' };
-    }
-
-    // Check agar video currently live hai
+    // ❌ Live check
     if (snippet.liveBroadcastContent === 'live') {
       return { valid: false, reason: 'Currently Live Video not allowed' };
     }
 
-    // Sab pass ho gaya
+    // ❌ Age restriction check
+    if (
+      contentDetails?.contentRating?.ytRating === 'ytAgeRestricted'
+    ) {
+      return { valid: false, reason: 'Video is age-restricted, not allowed' };
+    }
+
+    // ✅ All passed
     return { valid: true };
   } catch (err) {
     console.error('YouTube API error:', err.response?.data || err.message);
     return { valid: false, reason: err.response?.data?.error?.message || err.message };
   }
 };
+
 
 // New function: Get video type and duration with multiplier based on URL and API data
 const getVideoTypeAndDuration = async (videoId, url) => {
@@ -150,13 +150,13 @@ const getVideoTypeAndDuration = async (videoId, url) => {
   } else if (durationSeconds >= 50 && durationSeconds < 55) {
     multiplier = 2;
     finalDuration = Math.floor(Math.random() * (70 - 60 + 1)) + 60; // 60–70
-  } else if (durationSeconds >= 55 && durationSeconds <= 60) {
+  } else if (durationSeconds >= 55 && durationSeconds == 60) {
     multiplier = 2;
     finalDuration = Math.floor(Math.random() * (75 - 65 + 1)) + 65; // 65–75
   } else {
     // If short video is more than 60 seconds, default to 60s
     multiplier = 1;
-    finalDuration = 60;
+    finalDuration = 61;
   }
 }
     }

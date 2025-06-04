@@ -10,6 +10,8 @@ const userRoutes = require("./routes/userRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const clientUserRoutes = require("./routes/clientUser");
+const externalOrderRoute = require('./routes/externalOrder');
+
 
 dotenv.config();
 const app = express();
@@ -49,7 +51,7 @@ app.use("/api/user", userRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/clientUser", clientUserRoutes);
-
+app.use('/api', externalOrderRoute);
 
 // React build folder serve karo (outside current dir)
 app.use(express.static(path.join(__dirname, '..', 'yt-view-front', 'build')));

@@ -70,16 +70,18 @@ if (existing && existing.length > 0) {
         const finalDuration = videoInfo.finalDuration || 60;
 
         // Generate random delay seconds (internal use only, not for saving in orders table)
-        let randomDelaySeconds;
-        if (videoInfo.type === 'short') {
-          const minDelay = 90 * 60;
-          const maxDelay = 120 * 60;
-          randomDelaySeconds = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
-        } else {
-          const minDelay = 60 * 60;
-          const maxDelay = 80 * 60;
-          randomDelaySeconds = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
-        }
+       // Generate random delay seconds (internal use only, not for saving in orders table)
+let randomDelaySeconds;
+if (videoInfo.type === 'short') {
+  const minDelay = 100 * 60; // 100 minutes
+  const maxDelay = 120 * 60; // 120 minutes
+  randomDelaySeconds = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+} else {
+  const minDelay = 50 * 60; // 50 minutes
+  const maxDelay = 70 * 60; // 70 minutes
+  randomDelaySeconds = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+}
+
 
         // Insert into orders table — delay is boolean (1)
         await db.queryAsync(`
