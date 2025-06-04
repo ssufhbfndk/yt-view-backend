@@ -1,14 +1,12 @@
 const db = require('../config/db');
 const delay = require('../utils/delay');
 const { getYouTubeVideoId, isValidYouTubeVideo, getVideoTypeAndDuration } = require('../utils/youtube');
-
 const util = require('util');
 
 const processPendingOrders = async () => {
   try {
     const connection = await db.getConnection();
 
-    // Promisify transaction methods for this connection
     const beginTransaction = util.promisify(connection.beginTransaction).bind(connection);
     const commit = util.promisify(connection.commit).bind(connection);
     const rollback = util.promisify(connection.rollback).bind(connection);
@@ -89,22 +87,18 @@ const processPendingOrders = async () => {
 
         let randomDelaySeconds;
         if (videoInfo.type === 'short') {
-          const minDelay = 100 * 60;
-          const maxDelay = 120 * 60;
-          randomDelaySeconds = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+          randomDelaySeconds = Math.floor(Math.random() * (120 * 60 - 100 * 60 + 1)) + 100 * 60;
         } else {
-          const minDelay = 50 * 60;
-          const maxDelay = 70 * 60;
-          randomDelaySeconds = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+          randomDelaySeconds = Math.floor(Math.random() * (70 * 60 - 50 * 60 + 1)) + 50 * 60;
         }
 
-        // Insert into orders table — delay = 0
+        // ✅ INSERT IGNORE into orders to prevent duplicates
         await query(`
-          INSERT INTO orders (order_id, video_link, quantity, remaining, delay, duration, type, timestamp)
+          INSERT IGNORE INTO orders (order_id, video_link, quantity, remaining, delay, duration, type, timestamp)
           VALUES (?, ?, ?, ?, 0, ?, ?, NOW())
         `, [order_id, video_link, quantity, remaining / videoInfo.multiplier, finalDuration, videoInfo.type]);
 
-        // Insert into order_delay table — delay = 0
+        // ✅ Insert or update delay config
         await query(`
           INSERT INTO order_delay (order_id, delay, type, timestamp)
           VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))
@@ -114,7 +108,7 @@ const processPendingOrders = async () => {
             timestamp = VALUES(timestamp)
         `, [order_id, 0, videoInfo.type, randomDelaySeconds]);
 
-        // Delete from pending_orders
+        // ✅ Clean up pending order
         await query('DELETE FROM pending_orders WHERE id = ?', [id]);
 
         await commit();
