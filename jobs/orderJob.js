@@ -2,7 +2,7 @@ const processPendingOrders = require('../services/orderProcessor');
 const processTempOrders = require('../services/processTempOrders');
 const deleteOldOrders = require('../services/cleanupOldOrders');
 const cleanupOldIpTracking = require('../services/cleanupIpTracking');
-const {setDelayTrue,setDelayFalse} = require('../services/updateDelayedOrders');
+const {setDelayTrueToFalse,setDelayFalseToTrue} = require('../services/updateDelayedOrders');
 
 // Every 3 sec
 setInterval(processPendingOrders, 3 * 1000);
@@ -24,12 +24,12 @@ setInterval(() => {
 
 // Run checkAndUpdateDelayedOrders every 2 minutes (120000 ms)
 setInterval(() => {
-  setDelayTrue()
+  setDelayTrueToFalse()
     .catch(err => console.error("Error in checkAndUpdateDelayedOrders:", err));
 }, 2 * 60 * 1000); // 2 minutes
 
 setInterval(() => {
-  setDelayFalse()
+  setDelayFalseToTrue()
     .catch(err => console.error("Error in checkAndUpdateDelayedOrders:", err));
 }, 3 * 60 * 1000); // 3 minutes
 

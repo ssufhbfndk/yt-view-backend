@@ -1,7 +1,6 @@
 const db = require('../config/db');
 
-// 🔁 Converts delay=true → delay=false with new timestamp
-const setDelayFalse = async () => {
+const setDelayTrueToFalse = async () => {
   console.log("⏳ Running delay=true → false job...");
 
   let connection;
@@ -12,45 +11,68 @@ const setDelayFalse = async () => {
     await conn.query('START TRANSACTION');
     const now = new Date();
 
-    const [delayTrueOrders] = await conn.query(
-      `SELECT od.order_id, od.timestamp, o.type 
-       FROM order_delay od
-       JOIN orders o ON od.order_id = o.order_id
-       WHERE od.delay = true`
-    );
+    // Step 1: Get all delay=true orders
+    const [delayTrueOrders] = await conn.query(`
+      SELECT od.order_id, od.timestamp, o.type
+      FROM order_delay od
+      LEFT JOIN orders o ON od.order_id = o.order_id
+      WHERE od.delay = true
+    `);
 
-    for (const { order_id, timestamp, type } of delayTrueOrders) {
-      const diffMinutes = (now - new Date(timestamp)) / (1000 * 60);
+    for (const { order_id, type } of delayTrueOrders) {
+      const [inTemp] = await conn.query(`SELECT * FROM temp_orders WHERE order_id = ?`, [order_id]);
 
-      if (diffMinutes >= 0) {
-        let randomDelayMinutes = type === 'short'
-          ? 100 + Math.floor(Math.random() * 21) // 100–120 mins
-          : 50 + Math.floor(Math.random() * 21);  // 50–70 mins
+      if (inTemp.length > 0) {
+        // Order is in temp_orders
+        const randomDelay = type === 'short'
+          ? 45 + Math.floor(Math.random() * 16)     // 45–60 min
+          : 60 + Math.floor(Math.random() * 61);    // 60–120 min
+        const tempFutureTime = new Date(now.getTime() + 180 * 60000); // 180 min
 
-        const newTimestamp = new Date(now.getTime() + randomDelayMinutes * 60000);
+        await conn.query(`UPDATE order_delay SET delay = false, timestamp = ? WHERE order_id = ?`, [new Date(now.getTime() + randomDelay * 60000), order_id]);
+        await conn.query(`UPDATE temp_orders SET delay = false, timestamp = ? WHERE order_id = ?`, [tempFutureTime, order_id]);
 
-        await conn.query(
-          `UPDATE order_delay SET delay = false, timestamp = ? WHERE order_id = ?`,
-          [newTimestamp, order_id]
-        );
-        await conn.query(`UPDATE orders SET delay = false WHERE order_id = ? AND delay = true`, [order_id]);
-        await conn.query(`UPDATE temp_orders SET delay = false WHERE order_id = ? AND delay = true`, [order_id]);
+      } else {
+        // Not in temp_orders → Check if in orders
+        const [inOrders] = await conn.query(`SELECT * FROM orders WHERE order_id = ?`, [order_id]);
+
+        if (inOrders.length > 0) {
+          const order = inOrders[0];
+          const randomDelay = order.type === 'short'
+            ? 45 + Math.floor(Math.random() * 16)
+            : 60 + Math.floor(Math.random() * 61);
+          const futureTime = new Date(now.getTime() + randomDelay * 60000);
+          const tempFutureTime = new Date(now.getTime() + 180 * 60000);
+
+          // Remove from orders
+          await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order_id]);
+
+          // Update order_delay
+          await conn.query(`UPDATE order_delay SET delay = false, timestamp = ? WHERE order_id = ?`, [futureTime, order_id]);
+
+          // Insert into temp_orders
+          await conn.query(`
+            INSERT INTO temp_orders (order_id, video_link, type, remaining, delay, timestamp)
+            VALUES (?, ?, ?, ?, false, ?)`,
+            [order.order_id, order.video_link, order.type, order.remaining, tempFutureTime]
+          );
+        }
       }
     }
 
     await conn.query('COMMIT');
-    console.log('✅ delay=true → false done.');
-
+    console.log("✅ delay=true → false done.");
   } catch (error) {
-    console.error('❌ Error in delay=true → false:', error);
+    console.error("❌ Error in delay=true → false:", error);
     if (connection) await connection.promise().query('ROLLBACK');
   } finally {
     if (connection) connection.release();
   }
 };
 
-// 🔁 Converts delay=false → delay=true with new timestamp
-const setDelayTrue = async () => {
+
+
+const setDelayFalseToTrue = async () => {
   console.log("⏳ Running delay=false → true job...");
 
   let connection;
@@ -59,39 +81,46 @@ const setDelayTrue = async () => {
     const conn = connection.promise();
 
     await conn.query('START TRANSACTION');
+
     const now = new Date();
 
-    const [delayFalseOrders] = await conn.query(
-      `SELECT od.order_id, od.timestamp, o.type 
-       FROM order_delay od
-       JOIN orders o ON od.order_id = o.order_id
-       WHERE od.delay = false`
-    );
+    // Step 1: Get all expired delay=false orders
+    const [expiredOrders] = await conn.query(`
+      SELECT od.order_id, od.timestamp, o.type
+      FROM order_delay od
+      LEFT JOIN temp_orders t ON od.order_id = t.order_id
+      LEFT JOIN orders o ON od.order_id = o.order_id
+      WHERE od.delay = false AND od.timestamp <= ?
+    `, [now]);
 
-    for (const { order_id, timestamp, type } of delayFalseOrders) {
-      const diffMinutes = (now - new Date(timestamp)) / (1000 * 60);
+    for (const order of expiredOrders) {
+      const orderId = order.order_id;
 
-      if (diffMinutes >= 0) {
-        let randomDelayMinutes = type === 'short'
-          ? 45 + Math.floor(Math.random() * 16)   // 45–60 mins
-          : 120 + Math.floor(Math.random() * 31); // 120–150 mins
+      // Check in temp_orders
+      const [inTemp] = await conn.query(`SELECT * FROM temp_orders WHERE order_id = ?`, [orderId]);
 
-        const newTimestamp = new Date(now.getTime() + randomDelayMinutes * 60000);
+      if (inTemp.length > 0) {
+        // Order exists in temp_orders → just update flag + NOW() in order_delay
+        await conn.query(`UPDATE order_delay SET delay = true, timestamp = ? WHERE order_id = ?`, [now, orderId]);
+      } else {
+        // Not in temp_orders → determine random delay
+        let addedMinutes;
+        if (order.type === 'short') {
+          addedMinutes = 100 + Math.floor(Math.random() * 21); // 100–120
+        } else {
+          addedMinutes = 50 + Math.floor(Math.random() * 21);  // 50–70
+        }
 
-        await conn.query(
-          `UPDATE order_delay SET delay = true, timestamp = ? WHERE order_id = ?`,
-          [newTimestamp, order_id]
-        );
-        await conn.query(`UPDATE orders SET delay = true WHERE order_id = ? AND delay = false`, [order_id]);
-        await conn.query(`UPDATE temp_orders SET delay = true WHERE order_id = ? AND delay = false`, [order_id]);
+        const newTimestamp = new Date(now.getTime() + addedMinutes * 60000);
+
+        await conn.query(`UPDATE order_delay SET delay = true, timestamp = ? WHERE order_id = ?`, [newTimestamp, orderId]);
       }
     }
 
     await conn.query('COMMIT');
-    console.log('✅ delay=false → true done.');
-
+    console.log("✅ delay=false → true job done.");
   } catch (error) {
-    console.error('❌ Error in delay=false → true:', error);
+    console.error("❌ Error in delay=false → true:", error);
     if (connection) await connection.promise().query('ROLLBACK');
   } finally {
     if (connection) connection.release();
@@ -99,6 +128,6 @@ const setDelayTrue = async () => {
 };
 
 module.exports = {
-  setDelayTrue,
-  setDelayFalse
+  setDelayTrueToFalse,
+  setDelayFalseToTrue
 };

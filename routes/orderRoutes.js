@@ -30,7 +30,7 @@ router.post("/fetch-order", async (req, res) => {
   LEFT JOIN order_ip_tracking ipt ON o.order_id = ipt.order_id AND ipt.ip_address = ?
   WHERE p.order_id IS NULL
     AND (ipt.count IS NULL OR ipt.count < 3)
-    AND o.delay = false   -- ✅ CHANGED THIS LINE
+    AND o.delay = true   
   ORDER BY RAND()
   LIMIT 1
   FOR UPDATE

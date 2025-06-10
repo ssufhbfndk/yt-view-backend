@@ -105,20 +105,21 @@ const processPendingOrders = async () => {
         randomDelaySeconds = Math.floor(Math.random() * (70 * 60 - 50 * 60 + 1)) + 50 * 60;
       }
 
-      // ✅ Insert into orders
+      // ✅ Insert into orders with delayed = TRUE
       await query2(`
-        INSERT IGNORE INTO orders (order_id, video_link, quantity, remaining, delay, duration, type, timestamp)
-        VALUES (?, ?, ?, ?, 0, ?, ?, NOW())
+        INSERT IGNORE INTO orders (order_id, video_link, quantity, remaining, delay, duration, type, timestamp, delayed)
+        VALUES (?, ?, ?, ?, 0, ?, ?, NOW(), TRUE)
       `, [order_id, video_link, quantity, remaining / videoInfo.multiplier, finalDuration, videoInfo.type]);
 
-      // ✅ Insert into order_delay
+      // ✅ Insert into order_delay with delayed = TRUE
       await query2(`
-        INSERT INTO order_delay (order_id, delay, type, timestamp)
-        VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))
+        INSERT INTO order_delay (order_id, delay, type, timestamp, delayed)
+        VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND), TRUE)
         ON DUPLICATE KEY UPDATE 
           delay = VALUES(delay),
           type = VALUES(type),
-          timestamp = VALUES(timestamp)
+          timestamp = VALUES(timestamp),
+          delayed = VALUES(delayed)
       `, [order_id, 0, videoInfo.type, randomDelaySeconds]);
 
       await commit2();
