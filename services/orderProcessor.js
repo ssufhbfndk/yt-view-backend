@@ -107,14 +107,14 @@ const processPendingOrders = async () => {
 
       const futureTimestamp = new Date(Date.now() + randomDelaySeconds * 1000);
 
-      // ✅ Insert into orders
+      // ✅ Insert into orders (delay = 1 always)
       await query2(`
         INSERT IGNORE INTO orders 
         (order_id, video_link, quantity, remaining, delay, duration, type, timestamp)
-        VALUES (?, ?, ?, ?, 0, ?, ?, NOW())
+        VALUES (?, ?, ?, ?, 1, ?, ?, NOW())
       `, [order_id, video_link, quantity, remaining / videoInfo.multiplier, finalDuration, videoInfo.type]);
 
-      // ✅ Insert into order_delay with actual timestamp
+      // ✅ Insert into order_delay (delay = randomDelaySeconds)
       await query2(`
         INSERT INTO order_delay 
         (order_id, delay, type, timestamp)
