@@ -114,16 +114,16 @@ const processPendingOrders = async () => {
         VALUES (?, ?, ?, ?, 1, ?, ?, NOW())
       `, [order_id, video_link, quantity, remaining / videoInfo.multiplier, finalDuration, videoInfo.type]);
 
-      // ✅ Insert into order_delay (delay = randomDelaySeconds)
+       // ✅ Insert into `order_delay` with delay = 1 but future timestamp based on actual delay
       await query2(`
         INSERT INTO order_delay 
         (order_id, delay, type, timestamp)
-        VALUES (?, ?, ?, ?)
+        VALUES (?, 1, ?, ?)
         ON DUPLICATE KEY UPDATE 
-          delay = VALUES(delay),
+          delay = 1,
           type = VALUES(type),
           timestamp = VALUES(timestamp)
-      `, [order_id, randomDelaySeconds, videoInfo.type, futureTimestamp]);
+      `, [order_id, videoInfo.type, futureTimestamp]);
 
       await commit2();
       conn.release();
