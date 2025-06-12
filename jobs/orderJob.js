@@ -22,7 +22,7 @@ setInterval(() => {
   cleanupOldIpTracking();
 }, 2 * 60 * 1000);
 
-// Run checkAndUpdateDelayedOrders every 2 minutes (120000 ms)
+/*/ Run checkAndUpdateDelayedOrders every 2 minutes (120000 ms)
 setInterval(() => {
   setDelayTrueToFalse()
     .catch(err => console.error("Error in checkAndUpdateDelayedOrders:", err));
@@ -33,5 +33,5 @@ setInterval(() => {
     .catch(err => console.error("Error in checkAndUpdateDelayedOrders:", err));
 }, 3 * 60 * 1000); // 3 minutes
 
-
+*/
 console.log('✅ Background jobs initialized:');
