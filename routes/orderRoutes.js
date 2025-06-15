@@ -91,7 +91,7 @@ router.post("/fetch-order", async (req, res) => {
       if (order.type === "short") {
         delaySeconds = Math.floor(Math.random() * 11) + 90; // 90–100
       } else {
-        delaySeconds = Math.floor(Math.random() * 21) + 30; // 240–260
+        delaySeconds = Math.floor(Math.random() * 21) + 600; // 240–260
       }
 
       await conn.query(
