@@ -126,7 +126,7 @@ const getVideoTypeAndDuration = async (videoId, url) => {
     let finalDuration = durationSeconds;
 
     if (type === 'live' || type === 'long') {
-      finalDuration = 60;
+      finalDuration = 90;
       multiplier = 1;
     } else if (type === 'short') {
       // Custom duration logic based on your conditions
