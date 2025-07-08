@@ -29,7 +29,7 @@ router.post("/fetch-order", async (req, res) => {
   LEFT JOIN ${profileTable} p ON o.order_id = p.order_id
   LEFT JOIN order_ip_tracking ipt ON o.order_id = ipt.order_id AND ipt.ip_address = ?
   WHERE p.order_id IS NULL
-    AND (ipt.count IS NULL OR ipt.count < 2)
+    AND (ipt.count IS NULL OR ipt.count < 1)
     AND o.delay = true   
   ORDER BY RAND()
   LIMIT 1
@@ -89,10 +89,11 @@ router.post("/fetch-order", async (req, res) => {
     } else {
       let delaySeconds = 0;
       if (order.type === "short") {
-        delaySeconds = Math.floor(Math.random() * 11) + 90; // 90–100
-      } else {
-        delaySeconds = Math.floor(Math.random() * 21) + 100; // 240–260
-      }
+  delaySeconds = Math.floor(Math.random() * 11) + 90; // 90–100 seconds
+} else {
+  delaySeconds = Math.floor(Math.random() * 31) + 120; // 120–150 seconds
+}
+
 
       await conn.query(
         `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, delay, type, duration, timestamp) 

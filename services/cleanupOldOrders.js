@@ -11,7 +11,16 @@ const deleteOldOrders = async () => {
       return;
     }
 
-    const fixedTime = new Date(Date.now() - 10 * 60 * 60 * 1000); // 8 hours ago
+    // Set fixedTime to today's 1:00 PM
+    const now = new Date();
+    const fixedTime = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      13, 0, 0 // 13:00 = 1 PM
+    );
+
+    console.log(`🧹 Deleting orders older than: ${fixedTime.toISOString()}`);
 
     for (const user of users) {
       const { username } = user;
@@ -24,8 +33,6 @@ const deleteOldOrders = async () => {
         continue;
       }
 
-     
-
       const deleteQuery = `DELETE FROM ?? WHERE timestamp < ?`;
       const result = await db.queryAsync(deleteQuery, [profileTable, fixedTime]);
 
@@ -37,5 +44,6 @@ const deleteOldOrders = async () => {
     console.error("❌ Error deleting old orders:", error);
   }
 };
+
 
 module.exports = deleteOldOrders;

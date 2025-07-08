@@ -2,19 +2,29 @@ const db = require('../config/db');
 
 const cleanupOldIpTracking = async () => {
   try {
-    
+    // Get today's 1:00 PM
+    const now = new Date();
+    const onePM = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      13, 0, 0 // 1:00 PM today
+    );
 
-    // Delete records from order_ip_tracking table
-    // jinka timestamp ab se 60 minutes ya usse zyada purana hai
+    // Convert to MySQL DATETIME format (YYYY-MM-DD HH:mm:ss)
+    const formattedOnePM = onePM.toISOString().slice(0, 19).replace('T', ' ');
+
+    // Delete records where timestamp is older than today's 1 PM
     const result = await db.queryAsync(`
       DELETE FROM order_ip_tracking
-      WHERE TIMESTAMPDIFF(MINUTE, timestamp, NOW()) >= 60
-    `);
+      WHERE timestamp < ?
+    `, [formattedOnePM]);
 
-    console.log(`✅ Deleted ${result.affectedRows} old IP tracking records.`);
+    console.log(`✅ Deleted ${result.affectedRows} old IP tracking records (before 1 PM).`);
   } catch (error) {
     console.error("❌ Error cleaning up order_ip_tracking:", error);
   }
 };
+
 
 module.exports = cleanupOldIpTracking;
