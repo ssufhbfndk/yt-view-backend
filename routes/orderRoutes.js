@@ -77,6 +77,8 @@ router.post("/fetch-order", async (req, res) => {
       );
     }
 
+    // ... no changes above this
+
     const newRemaining = order.remaining - 1;
 
     if (newRemaining <= 0) {
@@ -87,18 +89,27 @@ router.post("/fetch-order", async (req, res) => {
       await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
       await conn.query(`DELETE FROM order_delay WHERE order_id = ?`, [order.order_id]);
     } else {
-      let delaySeconds = 0;
-      if (order.type === "short") {
-  delaySeconds = Math.floor(Math.random() * 11) + 90; // 90–100 seconds
-} else {
-  delaySeconds = Math.floor(Math.random() * 31) + 120; // 120–150 seconds
-}
 
+      // ✅✅✅ Updated delay logic here
+      const delayPool = [45, 60, 75, 90, 120,150];
+      const availableDelays = delayPool.filter(d => d !== order.wait);
+      const delaySeconds = availableDelays[Math.floor(Math.random() * availableDelays.length)];
 
       await conn.query(
-        `INSERT INTO temp_orders (order_id, video_link, quantity, remaining, delay, type, duration, timestamp) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, NOW() + INTERVAL ? SECOND)`,
-        [order.order_id, order.video_link, order.quantity, newRemaining, order.delay, order.type, order.duration, delaySeconds]
+        `INSERT INTO temp_orders 
+          (order_id, video_link, quantity, remaining, delay, type, duration, wait, timestamp) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW() + INTERVAL ? SECOND)`,
+        [
+          order.order_id,
+          order.video_link,
+          order.quantity,
+          newRemaining,
+          order.delay,
+          order.type,
+          order.duration,
+          delaySeconds,     // wait column
+          delaySeconds      // timestamp
+        ]
       );
 
       await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
@@ -124,7 +135,6 @@ router.post("/fetch-order", async (req, res) => {
     return res.status(500).json({ success: false, message: "Server Error" });
   }
 });
-
 
 
 // API 1 - Receive Data from user and Save to pending_orders
