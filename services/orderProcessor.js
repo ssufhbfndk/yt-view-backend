@@ -107,12 +107,20 @@ const processPendingOrders = async () => {
 
       const futureTimestamp = new Date(Date.now() + randomDelaySeconds * 1000);
 
-      // ✅ Insert into orders (delay = 1 always)
+      // ✅✅✅ Updated delay logic here
+const delayPool = [45, 60, 75, 90, 120, 150];
+const availableDelays = delayPool.filter(d => d !== order.wait);
+const delaySeconds = availableDelays[Math.floor(Math.random() * availableDelays.length)];
+
+// Store delaySeconds as wait too
+const wait = delaySeconds;
+
       await query2(`
-        INSERT IGNORE INTO orders 
-        (order_id, video_link, quantity, remaining, delay, duration, type, timestamp)
-        VALUES (?, ?, ?, ?, 1, ?, ?, NOW())
-      `, [order_id, video_link, quantity, remaining / videoInfo.multiplier, finalDuration, videoInfo.type]);
+  INSERT IGNORE INTO orders 
+  (order_id, video_link, quantity, remaining, delay, duration, type, wait, timestamp)
+  VALUES (?, ?, ?, ?, 1, ?, ?, ?, NOW())
+`, [order_id, video_link, quantity, remaining / videoInfo.multiplier, finalDuration, videoInfo.type, wait]);
+
 
        // ✅ Insert into `order_delay` with delay = 1 but future timestamp based on actual delay
       await query2(`

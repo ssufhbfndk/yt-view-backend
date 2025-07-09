@@ -34,21 +34,21 @@ const processTempOrders = async () => {
     }
 
     for (const tempOrder of tempOrders) {
-      const { order_id, video_link, quantity, remaining, delay, type, duration } = tempOrder;
+  const { order_id, video_link, quantity, remaining, delay, type, duration, wait } = tempOrder;
 
-      if (remaining > 0) {
-        // Re-insert into orders table with same delay, plus type and duration
-        await conn.query(`
-          INSERT INTO orders (order_id, video_link, quantity, remaining, delay, type, duration)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE 
-            remaining = VALUES(remaining), 
-            delay = VALUES(delay),
-            type = VALUES(type),
-            duration = VALUES(duration)
-        `, [order_id, video_link, quantity, remaining, delay, type, duration]);
-
-      } else {
+  if (remaining > 0) {
+    // Re-insert into orders table with wait also included
+    await conn.query(`
+      INSERT INTO orders (order_id, video_link, quantity, remaining, delay, type, duration, wait)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE 
+        remaining = VALUES(remaining), 
+        delay = VALUES(delay),
+        type = VALUES(type),
+        duration = VALUES(duration),
+        wait = VALUES(wait)
+    `, [order_id, video_link, quantity, remaining, delay, type, duration, wait]);
+  }else {
         // Move to complete_orders if no remaining
         await conn.query(`
           INSERT INTO complete_orders (order_id, video_link, quantity, timestamp)
