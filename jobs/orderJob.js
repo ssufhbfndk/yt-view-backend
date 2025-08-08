@@ -15,7 +15,7 @@ setInterval(processTempOrders, 30 * 1000);
   await cleanupOldIpTracking();
 })();
 
-// 🟡 2. Schedule daily run at exactly 1 PM
+// 🟡 2. Schedule daily cleanup at exactly 1 PM
 const scheduleDailyCleanup = () => {
   const now = new Date();
   const onePM = new Date(
@@ -46,5 +46,7 @@ const scheduleDailyCleanup = () => {
 
 scheduleDailyCleanup();
 
+// 🟢 3. Run IP cleanup every 3 minutes
+setInterval(cleanupOldIpTracking, 3 * 60 * 1000);
 
 console.log('✅ Background jobs initialized:');
