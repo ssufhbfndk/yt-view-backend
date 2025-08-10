@@ -28,16 +28,16 @@ const processPendingOrders = async () => {
       return;
     }
 
-    const { id, order_id, video_link, quantity, remaining } = order;
+    const { id, order_id, video_link, quantity, remaining, duration } = order;
 
-    // ✅ Delete from pending_orders immediately to avoid double processing
+    // ✅ Delete from pending_orders immediately
     await query('DELETE FROM pending_orders WHERE id = ?', [id]);
-    await commit(); // Commit deletion only
+    await commit(); // Commit deletion
     connection.release();
 
     console.log(`➡️ Picked order: ${order_id} | Removed from pending_orders`);
 
-    // ❗ Now continue rest of the logic in a new connection
+    // New connection for rest of the logic
     const conn = await db.getConnection();
     const query2 = util.promisify(conn.query).bind(conn);
     const begin = util.promisify(conn.beginTransaction).bind(conn);
@@ -60,7 +60,7 @@ const processPendingOrders = async () => {
         return;
       }
 
-      // ✅ Check if order already exists
+      // ✅ Check for duplicates
       const existing = await query2(`
         SELECT order_id FROM orders WHERE order_id = ? OR video_link = ?
         UNION
@@ -93,11 +93,13 @@ const processPendingOrders = async () => {
         return;
       }
 
-      // ✅ Get video duration & type
-      const videoInfo = await getVideoTypeAndDuration(videoId, video_link);
+      // ✅ Pass pending_orders.duration into the function
+      const videoInfo = await getVideoTypeAndDuration(videoId, video_link, duration);
+
+      // ✅ Use whatever duration the function returns
       const finalDuration = videoInfo.finalDuration || 60;
 
-      // ✅ Generate delay
+      // ✅ Delay generation
       let randomDelaySeconds;
       if (videoInfo.type === 'short') {
         randomDelaySeconds = Math.floor(Math.random() * (120 * 60 - 100 * 60 + 1)) + 100 * 60;
@@ -107,22 +109,20 @@ const processPendingOrders = async () => {
 
       const futureTimestamp = new Date(Date.now() + randomDelaySeconds * 1000);
 
-      // ✅✅✅ Updated delay logic here
-const delayPool = [45, 60, 75, 90, 120, 150];
-const availableDelays = delayPool.filter(d => d !== order.wait);
-const delaySeconds = availableDelays[Math.floor(Math.random() * availableDelays.length)];
+      // ✅ Delay pool logic
+      const delayPool = [45, 60, 75, 90, 120, 150];
+      const availableDelays = delayPool.filter(d => d !== order.wait);
+      const delaySeconds = availableDelays[Math.floor(Math.random() * availableDelays.length)];
+      const wait = delaySeconds;
 
-// Store delaySeconds as wait too
-const wait = delaySeconds;
-
+      // ✅ Insert into orders
       await query2(`
-  INSERT IGNORE INTO orders 
-  (order_id, video_link, quantity, remaining, delay, duration, type, wait, timestamp)
-  VALUES (?, ?, ?, ?, 1, ?, ?, ?, NOW())
-`, [order_id, video_link, quantity, remaining / videoInfo.multiplier, finalDuration, videoInfo.type, wait]);
+        INSERT IGNORE INTO orders 
+        (order_id, video_link, quantity, remaining, delay, duration, type, wait, timestamp)
+        VALUES (?, ?, ?, ?, 1, ?, ?, ?, NOW())
+      `, [order_id, video_link, quantity, remaining / videoInfo.multiplier, finalDuration, videoInfo.type, wait]);
 
-
-       // ✅ Insert into `order_delay` with delay = 1 but future timestamp based on actual delay
+      // ✅ Insert into order_delay
       await query2(`
         INSERT INTO order_delay 
         (order_id, delay, type, timestamp)
@@ -136,7 +136,7 @@ const wait = delaySeconds;
       await commit2();
       conn.release();
 
-      console.log(`✅ Order processed: ${order_id} | Type: ${videoInfo.type} | Delay: ${randomDelaySeconds}s`);
+      console.log(`✅ Order processed: ${order_id} | Type: ${videoInfo.type} | Duration: ${finalDuration} | Delay: ${randomDelaySeconds}s`);
 
     } catch (err2) {
       await rollback2();

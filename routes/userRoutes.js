@@ -167,21 +167,27 @@ router.get("/num-views/:username", async (req, res) => {
 // when video watch one add
 
 router.post("/increment-views", async (req, res) => {
-  const { username } = req.body;
+  const { username, points } = req.body;
 
-  if (!username) {
-    return res.status(400).json({ success: false, message: "Username is required" });
+  if (!username || points === undefined) {
+    return res.status(400).json({ success: false, message: "Username and points are required" });
+  }
+
+  if (isNaN(points) || points <= 0) {
+    return res.status(400).json({ success: false, message: "Points must be a positive number" });
   }
 
   try {
     const connection = await db.getConnection(); // ✅ Get connection for transaction
 
-    await new Promise((resolve, reject) => connection.beginTransaction((err) => (err ? reject(err) : resolve())));
+    await new Promise((resolve, reject) =>
+      connection.beginTransaction((err) => (err ? reject(err) : resolve()))
+    );
 
-    // ✅ Step 1: Increment `num_views` for the given user
+    // ✅ Step 1: Increment `num_views` by the `points` value
     const updateResult = await db.queryAsync(
-      "UPDATE user SET num_views = num_views + 1 WHERE username = ?",
-      [username]
+      "UPDATE user SET num_views = num_views + ? WHERE username = ?",
+      [points, username]
     );
 
     if (updateResult.affectedRows === 0) {
@@ -200,10 +206,16 @@ router.post("/increment-views", async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found after update" });
     }
 
-    await new Promise((resolve, reject) => connection.commit((err) => (err ? reject(err) : resolve()))); // ✅ Commit transaction
+    await new Promise((resolve, reject) =>
+      connection.commit((err) => (err ? reject(err) : resolve()))
+    ); // ✅ Commit transaction
     connection.release(); // ✅ Release connection
 
-    res.json({ success: true, num_views: users[0].num_views });
+    res.json({
+      success: true,
+      num_views: users[0].num_views,
+      message: `Views increased by ${points}`
+    });
 
   } catch (error) {
     console.error("❌ Error incrementing num_views:", error);

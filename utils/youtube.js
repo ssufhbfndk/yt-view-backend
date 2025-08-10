@@ -80,7 +80,7 @@ const isValidYouTubeVideo = async (videoId) => {
 
 
 // New function: Get video type and duration with multiplier based on URL and API data
-const getVideoTypeAndDuration = async (videoId, url) => {
+const getVideoTypeAndDuration = async (videoId, url, passedDuration) => {
   const apiUrl = `https://www.googleapis.com/youtube/v3/videos?part=contentDetails,snippet&id=${videoId}&key=${YOUTUBE_API_KEY}`;
 
   try {
@@ -125,41 +125,49 @@ const getVideoTypeAndDuration = async (videoId, url) => {
     let multiplier = 1;
     let finalDuration = durationSeconds;
 
-    if (type === 'live' || type === 'long') {
-      finalDuration = 75;
-      multiplier = 1;
-    } else if (type === 'short') {
-      // Custom duration logic based on your conditions
-      if (type === 'short') {
-  if (durationSeconds <= 25) {
-    multiplier = 3;
-    finalDuration = durationSeconds * multiplier;
+    if (type === 'short') {
+      // Custom short logic (unchanged)
+      if (durationSeconds <= 25) {
+        multiplier = 3;
+        finalDuration = durationSeconds * multiplier;
+        if (finalDuration >= 55) {
+          finalDuration = Math.floor(Math.random() * (65 - 55 + 1)) + 55; // Clamp to 55–65
+        }
+      } else if (durationSeconds <= 35) {
+        multiplier = 2;
+        finalDuration = Math.floor(Math.random() * (50 - 40 + 1)) + 40; // 40–50
+      } else if (durationSeconds > 35 && durationSeconds < 45) {
+        multiplier = 2;
+        finalDuration = Math.floor(Math.random() * (60 - 50 + 1)) + 50; // 50–60
+      } else if (durationSeconds >= 45 && durationSeconds < 50) {
+        multiplier = 2;
+        finalDuration = Math.floor(Math.random() * (65 - 55 + 1)) + 55; // 55–65
+      } else if (durationSeconds >= 50 && durationSeconds < 55) {
+        multiplier = 2;
+        finalDuration = Math.floor(Math.random() * (70 - 60 + 1)) + 60; // 60–70
+      } else if (durationSeconds >= 55 && durationSeconds === 60) {
+        multiplier = 2;
+        finalDuration = Math.floor(Math.random() * (75 - 65 + 1)) + 65; // 65–75
+      } else {
+        multiplier = 1;
+        finalDuration = 61;
+      }
 
-    if (finalDuration >= 55) {
-      finalDuration = Math.floor(Math.random() * (65 - 55 + 1)) + 55; // Clamp to 55–65
+    } else {
+      // ✅ For long/live videos — apply your rule
+      const pendingValue = parseInt(passedDuration || 0, 10);
+      if (pendingValue > 0) {
+        if (durationSeconds > pendingValue) {
+          finalDuration = durationSeconds; // API bigger → use API
+        } else {
+          finalDuration = pendingValue; // Passed bigger or equal → use passed
+        }
+      } else {
+        finalDuration = durationSeconds; // No passed value → use API
+      }
+      multiplier = 1;
     }
-  } else if (durationSeconds <= 35) {
-    multiplier = 2;
-    finalDuration = Math.floor(Math.random() * (50 - 40 + 1)) + 40; // 40–50
-  } else if (durationSeconds > 35 && durationSeconds < 45) {
-    multiplier = 2;
-    finalDuration = Math.floor(Math.random() * (60 - 50 + 1)) + 50; // 50–60
-  } else if (durationSeconds >= 45 && durationSeconds < 50) {
-    multiplier = 2;
-    finalDuration = Math.floor(Math.random() * (65 - 55 + 1)) + 55; // 55–65
-  } else if (durationSeconds >= 50 && durationSeconds < 55) {
-    multiplier = 2;
-    finalDuration = Math.floor(Math.random() * (70 - 60 + 1)) + 60; // 60–70
-  } else if (durationSeconds >= 55 && durationSeconds == 60) {
-    multiplier = 2;
-    finalDuration = Math.floor(Math.random() * (75 - 65 + 1)) + 65; // 65–75
-  } else {
-    // If short video is more than 60 seconds, default to 60s
-    multiplier = 1;
-    finalDuration = 61;
-  }
-}
-    }
+
     return {
       type,
       originalDuration: durationSeconds,
@@ -172,6 +180,7 @@ const getVideoTypeAndDuration = async (videoId, url) => {
     return { error: err.response?.data?.error?.message || err.message };
   }
 };
+
 
 
 module.exports = { getYouTubeVideoId, isValidYouTubeVideo, getVideoTypeAndDuration };

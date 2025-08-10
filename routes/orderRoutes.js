@@ -146,30 +146,44 @@ router.post('/process', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Invalid data format' });
   }
 
-  const chunkSize = 3;
+  const chunkSize = 4; // Split into groups of 4
   const chunks = [];
 
-  // Chunk the data into sets of 3
+  // Chunk the data into sets of 4
   for (let i = 0; i < data.length; i += chunkSize) {
     chunks.push(data.slice(i, i + chunkSize));
   }
 
+  // Added 'duration' column
   const insertPending = `
-    INSERT INTO pending_orders (order_id, video_link, quantity, remaining)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO pending_orders (order_id, video_link, quantity, remaining, duration)
+    VALUES (?, ?, ?, ?, ?)
   `;
 
   const failedOrders = [];
 
   try {
     for (const chunk of chunks) {
-      const [orderId, videoLink, quantity] = chunk;
-      const originalQuantity = parseInt(quantity || 0);
+      const [orderId, videoLink, quantity, duration] = chunk;
+
+      const originalQuantity = parseInt(quantity || 0, 10);
       const additional = Math.ceil(originalQuantity * 0.15);
       const remaining = originalQuantity + additional;
 
+      // Duration parsing with default 60
+      let durationValue = parseInt(duration, 10);
+      if (isNaN(durationValue) || durationValue <= 0) {
+        durationValue = 60;
+      }
+
       try {
-        await db.queryAsync(insertPending, [orderId, videoLink, originalQuantity, remaining]);
+        await db.queryAsync(insertPending, [
+          orderId,
+          videoLink,
+          originalQuantity,
+          remaining,
+          durationValue
+        ]);
       } catch (err) {
         console.warn(`Skipping duplicate or error for orderId: ${orderId}`, err.message);
         failedOrders.push(orderId || 'unknown');
@@ -187,7 +201,6 @@ router.post('/process', async (req, res) => {
     res.status(500).json({ success: false, message: 'Server Error' });
   }
 });
-
 
 //////////////////////
 
