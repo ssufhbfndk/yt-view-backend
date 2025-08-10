@@ -158,9 +158,9 @@ const getVideoTypeAndDuration = async (videoId, url, passedDuration) => {
       const pendingValue = parseInt(passedDuration || 0, 10);
       if (pendingValue > 0) {
         if (durationSeconds > pendingValue) {
-          finalDuration = durationSeconds; // API bigger → use API
+          finalDuration = pendingValue; // API bigger → use API
         } else {
-          finalDuration = pendingValue; // Passed bigger or equal → use passed
+          finalDuration = durationSeconds; // Passed bigger or equal → use passed
         }
       } else {
         finalDuration = durationSeconds; // No passed value → use API
