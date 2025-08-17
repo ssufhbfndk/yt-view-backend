@@ -59,7 +59,7 @@ router.post("/add-user", async (req, res) => {
     const createProfileTableSQL = `
       CREATE TABLE IF NOT EXISTS \`${profileTable}\` (
         order_id INT PRIMARY KEY,
-        link VARCHAR(500),
+        video_link VARCHAR(500),
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;

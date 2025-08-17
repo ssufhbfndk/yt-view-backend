@@ -122,7 +122,7 @@ router.post("/fetch-order", async (req, res) => {
 
     // ✅ Final: Insert into profile table (log that this user has taken this order)
     await conn.query(
-  `INSERT INTO ${profileTable} (order_id, link, timestamp) VALUES (?, ?, NOW())`,
+  `INSERT INTO ${profileTable} (order_id, video_link, timestamp) VALUES (?, ?, NOW())`,
   [order.order_id, order.link]   // assuming your "orders" table has a column named "link"
 );
 
