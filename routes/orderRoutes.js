@@ -23,20 +23,25 @@ router.post("/fetch-order", async (req, res) => {
     await conn.query("START TRANSACTION");
 
     // 🔒 Lock order row
-    const [orders] = await conn.query(
+   const [orders] = await conn.query(
   `
-  SELECT o.* FROM orders o
-  LEFT JOIN ${profileTable} p ON o.order_id = p.order_id
-  LEFT JOIN order_ip_tracking ipt ON o.order_id = ipt.order_id AND ipt.ip_address = ?
-  WHERE p.order_id IS NULL
+  SELECT o.* 
+  FROM orders o
+  LEFT JOIN ${profileTable} p 
+    ON o.order_id = p.order_id OR o.video_link = p.video_link
+  LEFT JOIN order_ip_tracking ipt 
+    ON o.order_id = ipt.order_id AND ipt.ip_address = ?
+  WHERE p.order_id IS NULL 
+    AND p.video_link IS NULL
     AND (ipt.count IS NULL OR ipt.count < 1)
-    AND o.delay = true   
+    AND o.delay = true
   ORDER BY RAND()
   LIMIT 1
   FOR UPDATE
   `,
   [ip]
 );
+
 
 
     if (orders.length === 0) {
@@ -91,7 +96,7 @@ router.post("/fetch-order", async (req, res) => {
     } else {
 
       // ✅✅✅ Updated delay logic here
-      const delayPool = [45, 60, 75, 90, 120,150];
+      const delayPool = [45, 60, 75, 90];
       const availableDelays = delayPool.filter(d => d !== order.wait);
       const delaySeconds = availableDelays[Math.floor(Math.random() * availableDelays.length)];
 
@@ -117,9 +122,10 @@ router.post("/fetch-order", async (req, res) => {
 
     // ✅ Final: Insert into profile table (log that this user has taken this order)
     await conn.query(
-      `INSERT INTO ${profileTable} (order_id, timestamp) VALUES (?, NOW())`,
-      [order.order_id]
-    );
+  `INSERT INTO ${profileTable} (order_id, link, timestamp) VALUES (?, ?, NOW())`,
+  [order.order_id, order.link]   // assuming your "orders" table has a column named "link"
+);
+
 
     await conn.query("COMMIT");
     connection.release();

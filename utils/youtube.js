@@ -126,44 +126,26 @@ const getVideoTypeAndDuration = async (videoId, url, passedDuration) => {
     let finalDuration = durationSeconds;
 
     if (type === 'short') {
-      // Custom short logic (unchanged)
-      if (durationSeconds <= 25) {
-        multiplier = 3;
-        finalDuration = durationSeconds * multiplier;
-        if (finalDuration >= 55) {
-          finalDuration = Math.floor(Math.random() * (65 - 55 + 1)) + 55; // Clamp to 55–65
-        }
-      } else if (durationSeconds <= 35) {
-        multiplier = 2;
-        finalDuration = Math.floor(Math.random() * (50 - 40 + 1)) + 40; // 40–50
-      } else if (durationSeconds > 35 && durationSeconds < 45) {
-        multiplier = 2;
-        finalDuration = Math.floor(Math.random() * (60 - 50 + 1)) + 50; // 50–60
-      } else if (durationSeconds >= 45 && durationSeconds < 50) {
-        multiplier = 2;
-        finalDuration = Math.floor(Math.random() * (65 - 55 + 1)) + 55; // 55–65
-      } else if (durationSeconds >= 50 && durationSeconds < 55) {
-        multiplier = 2;
-        finalDuration = Math.floor(Math.random() * (70 - 60 + 1)) + 60; // 60–70
-      } else if (durationSeconds >= 55 && durationSeconds === 60) {
-        multiplier = 2;
-        finalDuration = Math.floor(Math.random() * (75 - 65 + 1)) + 65; // 65–75
-      } else {
+      // ✅ Your simplified short logic
+      if (durationSeconds <= 61) {
+        multiplier = 4;
+        finalDuration = (durationSeconds * multiplier) + 6;
+        multiplier++;
+      } else if (durationSeconds > 61) {
         multiplier = 1;
-        finalDuration = 61;
+        finalDuration = 10;
       }
-
     } else {
-      // ✅ For long/live videos — apply your rule
+      // ✅ For long/live videos — keep old logic
       const pendingValue = parseInt(passedDuration || 0, 10);
       if (pendingValue > 0) {
         if (durationSeconds > pendingValue) {
-          finalDuration = pendingValue; // API bigger → use API
+          finalDuration = pendingValue;
         } else {
-          finalDuration = durationSeconds; // Passed bigger or equal → use passed
+          finalDuration = durationSeconds;
         }
       } else {
-        finalDuration = durationSeconds; // No passed value → use API
+        finalDuration = durationSeconds;
       }
       multiplier = 1;
     }
@@ -180,6 +162,7 @@ const getVideoTypeAndDuration = async (videoId, url, passedDuration) => {
     return { error: err.response?.data?.error?.message || err.message };
   }
 };
+
 
 
 

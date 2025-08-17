@@ -38,7 +38,7 @@ router.post("/add-user", async (req, res) => {
     return res.status(400).json({ success: false, message: "Username is required." });
   }
 
-  // ✅ Sanitize username to prevent SQL injection in table name
+  // ✅ Sanitize username
   if (!/^[a-zA-Z0-9_]+$/.test(username)) {
     return res.status(400).json({ success: false, message: "Invalid username format." });
   }
@@ -51,28 +51,28 @@ router.post("/add-user", async (req, res) => {
       return res.json({ success: false, message: "Username already exists." });
     }
 
-    // ✅ Insert user into user table
+    // ✅ Insert user into main user table
     await db.queryAsync("INSERT INTO user (username, num_views) VALUES (?, ?)", [username, 0]);
 
     // ✅ Create profile_[username] table safely
     const profileTable = `profile_${username}`;
     const createProfileTableSQL = `
       CREATE TABLE IF NOT EXISTS \`${profileTable}\` (
-        order_id INT AUTO_INCREMENT PRIMARY KEY,
+        order_id INT PRIMARY KEY,
+        link VARCHAR(500),
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
 
     await db.queryAsync(createProfileTableSQL);
 
-    return res.json({ success: true, message: "User added and profile table created." });
+    return res.json({ success: true, message: "User added and profile table created with order_id as PRIMARY KEY." });
 
   } catch (err) {
     console.error("❌ API Error in /add-user:", err);
     return res.status(500).json({ success: false, message: "Internal server error." });
   }
 });
-
 
 // 🛠 Get all users
 router.get("/get-users", async (req, res) => {

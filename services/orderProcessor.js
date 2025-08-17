@@ -110,7 +110,7 @@ const processPendingOrders = async () => {
       const futureTimestamp = new Date(Date.now() + randomDelaySeconds * 1000);
 
       // ✅ Delay pool logic
-      const delayPool = [45, 60, 75, 90, 120, 150];
+      const delayPool = [45, 60, 75, 90, 120];
       const availableDelays = delayPool.filter(d => d !== order.wait);
       const delaySeconds = availableDelays[Math.floor(Math.random() * availableDelays.length)];
       const wait = delaySeconds;
