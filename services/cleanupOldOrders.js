@@ -17,7 +17,7 @@ const deleteOldOrders = async () => {
       now.getFullYear(),
       now.getMonth(),
       now.getDate(),
-      13, 0, 0 // 13:00 = 1 PM
+      12, 0, 0 // 12:00 = 12 PM
     );
 
     console.log(`🧹 Deleting orders older than: ${fixedTime.toISOString()}`);
