@@ -9,45 +9,30 @@ setInterval(processPendingOrders, 3 * 1000);
 // Every 30 sec
 setInterval(processTempOrders, 30 * 1000);
 
-// 🟢 1. Run once at server start (only old orders)
+// 🟢 Run old orders cleanup immediately on server start
 (async () => {
-  await deleteOldOrders();
+  try {
+    await deleteOldOrders();
+    console.log("✅ Old orders cleanup executed at startup");
+  } catch (err) {
+    console.error("❌ Error during initial old orders cleanup:", err);
+  }
 })();
 
-// 🟡 2. Schedule daily cleanup for deleteOldOrders (example: 1 PM daily)
-const scheduleDailyCleanup = () => {
-  const now = new Date();
-  const onePM = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    13, 0, 0
-  );
-
-  let delay = onePM.getTime() - now.getTime();
-
-  if (delay < 0) {
-    delay += 24 * 60 * 60 * 1000;
+// 🟡 Then schedule old orders cleanup every 30 minutes
+setInterval(async () => {
+  try {
+    await deleteOldOrders();
+    console.log("✅ Old orders cleanup executed (30 min interval)");
+  } catch (err) {
+    console.error("❌ Error during scheduled old orders cleanup:", err);
   }
+}, 30 * 60 * 1000); // 30 minutes
 
-  setTimeout(() => {
-    const runDailyCleanup = async () => {
-      await deleteOldOrders();   // 👈 sirf deleteOldOrders chalega
-    };
-
-    runDailyCleanup();
-
-    // After first run, repeat every 24 hours
-    setInterval(runDailyCleanup, 24 * 60 * 60 * 1000);
-  }, delay);
-};
-
-scheduleDailyCleanup();
-
-// 🟡 3. Schedule IP cleanup at 12am, 6am, 12pm, 6pm
+// 🟡 3. Schedule IP cleanup at 12am, 6am, 12pm, 6pm (same as your original code)
 const scheduleIpCleanup = () => {
   const now = new Date();
-  const hours = [0, 6, 12, 18]; // allowed hours
+  const hours = [12]; // allowed hours
   let nextRun = null;
 
   for (let h of hours) {
