@@ -189,37 +189,37 @@ router.post("/increment-views", async (req, res) => {
     });
   }
 
+  let conn;
   try {
-    const conn = await db.getConnection();
+    conn = await db.getConnection();
 
-    await new Promise((resolve, reject) =>
-      conn.beginTransaction((err) => (err ? reject(err) : resolve()))
-    );
+    await conn.beginTransaction();
 
     // ✅ Step 1: Increment `num_views` for user
-    const updateResult = await conn.query(
+    const [updateResult] = await conn.query(
       "UPDATE user SET num_views = num_views + ? WHERE username = ?",
       [points, username]
     );
 
-    if (updateResult[0].affectedRows === 0) {
-      conn.release();
+    if (updateResult.affectedRows === 0) {
+      await conn.rollback();
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
     // ✅ Step 2: Fetch updated num_views
-    const [users] = await conn.query("SELECT num_views FROM user WHERE username = ?", [
-      username,
-    ]);
+    const [users] = await conn.query(
+      "SELECT num_views FROM user WHERE username = ?",
+      [username]
+    );
 
     if (users.length === 0) {
-      conn.release();
+      await conn.rollback();
       return res
         .status(404)
         .json({ success: false, message: "User not found after update" });
     }
 
-    // ✅ Step 3: Decrement remaining
+    // ✅ Step 3: Decrement remaining in orders
     const [ordersResult] = await conn.query(
       "UPDATE orders SET remaining = remaining - 1 WHERE order_id = ? AND remaining > 0",
       [order_id]
@@ -233,11 +233,7 @@ router.post("/increment-views", async (req, res) => {
       );
     }
 
-    await new Promise((resolve, reject) =>
-      conn.commit((err) => (err ? reject(err) : resolve()))
-    );
-
-    conn.release();
+    await conn.commit();
 
     res.json({
       success: true,
@@ -247,14 +243,17 @@ router.post("/increment-views", async (req, res) => {
   } catch (error) {
     console.error("❌ Error incrementing num_views:", error);
 
-    if (error.connection) {
-      await new Promise((resolve) =>
-        error.connection.rollback(() => resolve())
-      );
-      error.connection.release();
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch (rollbackErr) {
+        console.error("Rollback failed:", rollbackErr);
+      }
     }
 
     res.status(500).json({ success: false, message: "Internal server error" });
+  } finally {
+    if (conn) conn.release(); // ✅ Always release connection
   }
 });
 
