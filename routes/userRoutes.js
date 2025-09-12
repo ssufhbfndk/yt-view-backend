@@ -169,71 +169,76 @@ router.get("/num-views/:username", async (req, res) => {
 router.post("/increment-views", async (req, res) => {
   const { username, points, order_id } = req.body;
 
-  if (!username || points === undefined) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Username and points are required" });
+  // Basic validation
+  if (!username || points === undefined || !order_id) {
+    return res.status(400).json({
+      success: false,
+      message: "Username, points, and order_id are required",
+    });
   }
 
   if (isNaN(points) || points <= 0) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Points must be a positive number" });
-  }
-
-  // ✅ Agar order_id missing hai → sirf response bhejo
-  if (!order_id) {
-    return res.json({
-      success: true,
-      message: `need app update`,
+    return res.status(400).json({
+      success: false,
+      message: "Points must be a positive number",
     });
   }
 
   let conn;
   try {
-    conn = await db.getConnection();
+    conn = await db.getConnection(); // ✅ Transaction start
+    await new Promise((resolve, reject) =>
+      conn.beginTransaction((err) => (err ? reject(err) : resolve()))
+    );
 
-    await conn.beginTransaction();
-
-    // ✅ Step 1: Increment `num_views` for user
-    const [updateResult] = await conn.query(
+    // ✅ Step 1: Increment user num_views
+    const updateResult = await db.queryAsync(
       "UPDATE user SET num_views = num_views + ? WHERE username = ?",
       [points, username]
     );
 
     if (updateResult.affectedRows === 0) {
-      await conn.rollback();
-      return res.status(404).json({ success: false, message: "User not found" });
+      conn.release();
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
     }
 
     // ✅ Step 2: Fetch updated num_views
-    const [users] = await conn.query(
+    const users = await db.queryAsync(
       "SELECT num_views FROM user WHERE username = ?",
       [username]
     );
 
     if (users.length === 0) {
-      await conn.rollback();
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found after update" });
+      conn.release();
+      return res.status(404).json({
+        success: false,
+        message: "User not found after update",
+      });
     }
 
-    // ✅ Step 3: Decrement remaining in orders
-    const [ordersResult] = await conn.query(
+    // ✅ Step 3: Decrement order remaining (first check orders, then temp_orders)
+    const ordersResult = await db.queryAsync(
       "UPDATE orders SET remaining = remaining - 1 WHERE order_id = ? AND remaining > 0",
       [order_id]
     );
 
-    // ✅ Step 4: If not in orders, try in temp_orders
     if (ordersResult.affectedRows === 0) {
-      await conn.query(
+      // If not in orders, try temp_orders
+      await db.queryAsync(
         "UPDATE temp_orders SET remaining = remaining - 1 WHERE order_id = ? AND remaining > 0",
         [order_id]
       );
     }
 
-    await conn.commit();
+    // ✅ Commit
+    await new Promise((resolve, reject) =>
+      conn.commit((err) => (err ? reject(err) : resolve()))
+    );
+
+    conn.release();
 
     res.json({
       success: true,
@@ -244,18 +249,17 @@ router.post("/increment-views", async (req, res) => {
     console.error("❌ Error incrementing num_views:", error);
 
     if (conn) {
-      try {
-        await conn.rollback();
-      } catch (rollbackErr) {
-        console.error("Rollback failed:", rollbackErr);
-      }
+      await new Promise((resolve) => conn.rollback(() => resolve()));
+      conn.release();
     }
 
-    res.status(500).json({ success: false, message: "Internal server error" });
-  } finally {
-    if (conn) conn.release(); // ✅ Always release connection
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
   }
 });
+
 
 
 
