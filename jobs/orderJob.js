@@ -29,48 +29,20 @@ setInterval(async () => {
   }
 }, 30 * 60 * 1000); // 30 minutes
 
-// 🟡 3. Schedule IP cleanup at 12am, 6am, 12pm, 6pm (same as your original code)
+// 🟡 Run IP cleanup every 10 minutes
 const scheduleIpCleanup = () => {
-  const now = new Date();
-  const hours = [12]; // allowed hours
-  let nextRun = null;
-
-  for (let h of hours) {
-    const runTime = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      h, 0, 0
-    );
-
-    if (runTime.getTime() > now.getTime()) {
-      nextRun = runTime;
-      break;
+  setInterval(async () => {
+    try {
+      await cleanupOldIpTracking(); // 👈 Run cleanup function
+      console.log("✅ IP cleanup executed at", new Date().toLocaleString());
+    } catch (error) {
+      console.error("❌ Error running IP cleanup:", error);
     }
-  }
-
-  // Agar aaj ke sare times nikal gaye → kal ka 12am set karo
-  if (!nextRun) {
-    nextRun = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + 1,
-      0, 0, 0
-    );
-  }
-
-  const delay = nextRun.getTime() - now.getTime();
-
-  setTimeout(async () => {
-    await cleanupOldIpTracking(); // 👈 IP cleanup sirf yahan chalega
-
-    // Schedule next run again
-    scheduleIpCleanup();
-  }, delay);
-
-  console.log(`⏳ Next IP cleanup scheduled at: ${nextRun}`);
+  }, 10 * 60 * 1000); // 10 min = 600000 ms
 };
 
+// Start cleanup schedule
 scheduleIpCleanup();
+
 
 console.log('✅ Background jobs initialized:');

@@ -167,67 +167,98 @@ router.get("/num-views/:username", async (req, res) => {
 // when video watch one add
 
 router.post("/increment-views", async (req, res) => {
-  const { username, points } = req.body;
+  const { username, points, order_id } = req.body;
 
   if (!username || points === undefined) {
-    return res.status(400).json({ success: false, message: "Username and points are required" });
+    return res
+      .status(400)
+      .json({ success: false, message: "Username and points are required" });
   }
 
   if (isNaN(points) || points <= 0) {
-    return res.status(400).json({ success: false, message: "Points must be a positive number" });
+    return res
+      .status(400)
+      .json({ success: false, message: "Points must be a positive number" });
+  }
+
+  // ✅ Agar order_id missing hai → sirf response bhejo
+  if (!order_id) {
+    return res.json({
+      success: true,
+      message: `need app update`,
+    });
   }
 
   try {
-    const connection = await db.getConnection(); // ✅ Get connection for transaction
+    const conn = await db.getConnection();
 
     await new Promise((resolve, reject) =>
-      connection.beginTransaction((err) => (err ? reject(err) : resolve()))
+      conn.beginTransaction((err) => (err ? reject(err) : resolve()))
     );
 
-    // ✅ Step 1: Increment `num_views` by the `points` value
-    const updateResult = await db.queryAsync(
+    // ✅ Step 1: Increment `num_views` for user
+    const updateResult = await conn.query(
       "UPDATE user SET num_views = num_views + ? WHERE username = ?",
       [points, username]
     );
 
-    if (updateResult.affectedRows === 0) {
-      connection.release();
+    if (updateResult[0].affectedRows === 0) {
+      conn.release();
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // ✅ Step 2: Fetch the updated `num_views` value
-    const users = await db.queryAsync(
-      "SELECT num_views FROM user WHERE username = ?",
-      [username]
-    );
+    // ✅ Step 2: Fetch updated num_views
+    const [users] = await conn.query("SELECT num_views FROM user WHERE username = ?", [
+      username,
+    ]);
 
     if (users.length === 0) {
-      connection.release();
-      return res.status(404).json({ success: false, message: "User not found after update" });
+      conn.release();
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found after update" });
+    }
+
+    // ✅ Step 3: Decrement remaining
+    const [ordersResult] = await conn.query(
+      "UPDATE orders SET remaining = remaining - 1 WHERE order_id = ? AND remaining > 0",
+      [order_id]
+    );
+
+    // ✅ Step 4: If not in orders, try in temp_orders
+    if (ordersResult.affectedRows === 0) {
+      await conn.query(
+        "UPDATE temp_orders SET remaining = remaining - 1 WHERE order_id = ? AND remaining > 0",
+        [order_id]
+      );
     }
 
     await new Promise((resolve, reject) =>
-      connection.commit((err) => (err ? reject(err) : resolve()))
-    ); // ✅ Commit transaction
-    connection.release(); // ✅ Release connection
+      conn.commit((err) => (err ? reject(err) : resolve()))
+    );
+
+    conn.release();
 
     res.json({
       success: true,
       num_views: users[0].num_views,
-      message: `Views increased by ${points}`
+      message: `Views increased by ${points}, remaining decremented for order ${order_id}`,
     });
-
   } catch (error) {
     console.error("❌ Error incrementing num_views:", error);
 
     if (error.connection) {
-      await new Promise((resolve) => error.connection.rollback(() => resolve())); // ✅ Rollback on error
-      error.connection.release(); // ✅ Release connection
+      await new Promise((resolve) =>
+        error.connection.rollback(() => resolve())
+      );
+      error.connection.release();
     }
 
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
+
+
 
 
 module.exports = router;
