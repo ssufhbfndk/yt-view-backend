@@ -48,10 +48,15 @@ const isValidYouTubeVideo = async (videoId) => {
     const item = response.data.items[0];
 
     if (!item) {
-      return { valid: false, reason: 'Video not found' };
+      return { valid: false, reason: 'Video not found or unavailable' };
     }
 
     const { status, snippet, contentDetails } = item;
+
+    // ❌ Upload status check
+    if (status.uploadStatus !== 'processed') {
+      return { valid: false, reason: `Video upload status: ${status.uploadStatus}` };
+    }
 
     // ❌ Privacy check
     if (status.privacyStatus !== 'public') {
@@ -64,10 +69,13 @@ const isValidYouTubeVideo = async (videoId) => {
     }
 
     // ❌ Age restriction check
-    if (
-      contentDetails?.contentRating?.ytRating === 'ytAgeRestricted'
-    ) {
+    if (contentDetails?.contentRating?.ytRating === 'ytAgeRestricted') {
       return { valid: false, reason: 'Video is age-restricted, not allowed' };
+    }
+
+    // ❌ Region restriction check
+    if (contentDetails?.regionRestriction) {
+      return { valid: false, reason: 'Video has region restrictions, not allowed' };
     }
 
     // ✅ All passed
@@ -77,6 +85,7 @@ const isValidYouTubeVideo = async (videoId) => {
     return { valid: false, reason: err.response?.data?.error?.message || err.message };
   }
 };
+
 
 
 // New function: Get video type and duration with multiplier based on URL and API data
