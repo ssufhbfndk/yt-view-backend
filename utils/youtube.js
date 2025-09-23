@@ -86,7 +86,20 @@ const isValidYouTubeVideo = async (videoId) => {
   }
 };
 
-
+const getChannelName = async (videoId) => {
+  const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${YOUTUBE_API_KEY}`;
+  try {
+    const res = await axios.get(url);
+    const item = res.data.items && res.data.items[0];
+    if (!item) {
+      return null;
+    }
+    return item.snippet.channelTitle || null;
+  } catch (err) {
+    console.error("YouTube API channel fetch error:", err.response?.data || err.message);
+    return null;
+  }
+};
 
 // New function: Get video type and duration with multiplier based on URL and API data
 const getVideoTypeAndDuration = async (videoId, url, passedDuration) => {
@@ -175,4 +188,4 @@ const getVideoTypeAndDuration = async (videoId, url, passedDuration) => {
 
 
 
-module.exports = { getYouTubeVideoId, isValidYouTubeVideo, getVideoTypeAndDuration };
+module.exports = { getYouTubeVideoId, isValidYouTubeVideo, getVideoTypeAndDuration , getChannelName };

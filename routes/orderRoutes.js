@@ -24,24 +24,32 @@ router.post("/fetch-order", async (req, res) => {
 
     await conn.query("START TRANSACTION");
 
-    // 🔒 Lock order row
+    // 🔒 Lock order row with IP + channel limit check
     const [orders] = await conn.query(
       `
       SELECT o.* 
       FROM orders o
       LEFT JOIN \`${profileTable}\` p 
-        ON o.order_id = p.order_id OR o.video_link = p.video_link
+        ON o.order_id = p.order_id OR o.video_link = p.video_link OR o.channel_name = p.channel_name
       LEFT JOIN order_ip_tracking ipt 
-        ON o.order_id = ipt.order_id AND ipt.ip_address = ?
+        ON (o.channel_name = ipt.channel_name) 
+        AND ipt.ip_address = ?
       WHERE p.order_id IS NULL 
         AND p.video_link IS NULL
-        AND (ipt.count IS NULL OR ipt.count < 1)
+        AND p.channel_name IS NULL
+        -- ❌ Same IP cannot repeat same order_id
+        AND NOT EXISTS (
+          SELECT 1 FROM order_ip_tracking i2 
+          WHERE i2.order_id = o.order_id AND i2.ip_address = ?
+        )
+        -- ✅ Same IP can watch max 3 videos per channel
+        AND (ipt.count IS NULL OR ipt.count < 3)
         AND o.delay = true
       ORDER BY RAND()
       LIMIT 1
       FOR UPDATE
       `,
-      [ip]
+      [ip, ip]
     );
 
     if (orders.length === 0) {
@@ -52,10 +60,10 @@ router.post("/fetch-order", async (req, res) => {
     const order = orders[0];
     const currentRemaining = parseInt(order.remaining, 10) || 0;
 
-    // ✅ Double check profile table to avoid race condition
+    // ✅ Double check in profile table
     const [existingProfile] = await conn.query(
-      `SELECT 1 FROM \`${profileTable}\` WHERE order_id = ?`,
-      [order.order_id]
+      `SELECT 1 FROM \`${profileTable}\` WHERE order_id = ? OR video_link = ? OR channel_name = ?`,
+      [order.order_id, order.video_link, order.channel_name]
     );
 
     if (existingProfile.length > 0) {
@@ -63,35 +71,37 @@ router.post("/fetch-order", async (req, res) => {
       return res.status(409).json({ success: false, message: "Order already processed" });
     }
 
-    // ✅ Update IP tracking
+    // ✅ Update IP tracking (order_id only once, channel up to 3 times)
     const [existingIP] = await conn.query(
-      `SELECT * FROM order_ip_tracking WHERE order_id = ? AND ip_address = ?`,
-      [order.order_id, ip]
+      `SELECT * FROM order_ip_tracking WHERE channel_name = ? AND ip_address = ?`,
+      [order.channel_name, ip]
     );
 
     if (existingIP.length > 0) {
       await conn.query(
-        `UPDATE order_ip_tracking SET count = count + 1, timestamp = NOW() WHERE order_id = ? AND ip_address = ?`,
-        [order.order_id, ip]
+        `UPDATE order_ip_tracking 
+         SET count = count + 1, timestamp = NOW() 
+         WHERE channel_name = ? AND ip_address = ?`,
+        [order.channel_name, ip]
       );
     } else {
       await conn.query(
-        `INSERT INTO order_ip_tracking (order_id, ip_address, count, timestamp) VALUES (?, ?, 1, NOW())`,
-        [order.order_id, ip]
+        `INSERT INTO order_ip_tracking (order_id, channel_name, ip_address, count, timestamp) 
+         VALUES (?, ?, ?, 1, NOW())`,
+        [order.order_id, order.channel_name, ip]
       );
     }
 
-    // ✅ Remaining logic (no decrement)
+    // ✅ Remaining logic
     if (currentRemaining <= 0) {
-      // Move to complete_orders
       await conn.query(
-        `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) VALUES (?, ?, ?, NOW())`,
-        [order.order_id, order.video_link, order.quantity]
+        `INSERT INTO complete_orders (order_id, video_link, channel_name, quantity, timestamp) 
+         VALUES (?, ?, ?, ?, NOW())`,
+        [order.order_id, order.video_link, order.channel_name, order.quantity]
       );
       await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
       await conn.query(`DELETE FROM order_delay WHERE order_id = ?`, [order.order_id]);
     } else {
-      // Delay logic same
       const delayPool = [45, 60, 75, 90, 120];
       const availableDelays = delayPool.filter(d => d !== order.wait);
       const delaySeconds = (availableDelays.length > 0)
@@ -100,13 +110,14 @@ router.post("/fetch-order", async (req, res) => {
 
       await conn.query(
         `INSERT INTO temp_orders 
-          (order_id, video_link, quantity, remaining, delay, type, duration, wait, timestamp) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
+          (order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait, timestamp) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
         [
           order.order_id,
           order.video_link,
+          order.channel_name,
           order.quantity,
-          currentRemaining,   // 👈 same remaining value, no decrement
+          currentRemaining,
           order.delay,
           order.type,
           order.duration,
@@ -118,10 +129,11 @@ router.post("/fetch-order", async (req, res) => {
       await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
     }
 
-    // ✅ Log into profile table
+    // ✅ Save to profile table
     await conn.query(
-      `INSERT INTO \`${profileTable}\` (order_id, video_link, timestamp) VALUES (?, ?, NOW())`,
-      [order.order_id, order.video_link]
+      `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, timestamp) 
+       VALUES (?, ?, ?, NOW())`,
+      [order.order_id, order.video_link, order.channel_name]
     );
 
     await conn.query("COMMIT");

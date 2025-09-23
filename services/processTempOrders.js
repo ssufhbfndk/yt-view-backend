@@ -34,37 +34,31 @@ const processTempOrders = async () => {
     }
 
     for (const tempOrder of tempOrders) {
-  const { order_id, video_link, quantity, remaining, delay, type, duration, wait } = tempOrder;
+      const { order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait } = tempOrder;
 
-  if (remaining > 0) {
-    // Re-insert into orders table with wait also included
-    await conn.query(`
-      INSERT INTO orders (order_id, video_link, quantity, remaining, delay, type, duration, wait)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE 
-        remaining = VALUES(remaining), 
-        delay = VALUES(delay),
-        type = VALUES(type),
-        duration = VALUES(duration),
-        wait = VALUES(wait)
-    `, [order_id, video_link, quantity, remaining, delay, type, duration, wait]);
-  }else {
-        // Move to complete_orders if no remaining
+      if (remaining > 0) {
+        // Re-insert into orders table with channel_name
         await conn.query(`
-          INSERT INTO complete_orders (order_id, video_link, quantity, timestamp)
-          VALUES (?, ?, ?, NOW())
-        `, [order_id, video_link, quantity]);
-
-       
+          INSERT INTO orders (order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE 
+            remaining = VALUES(remaining), 
+            delay = VALUES(delay),
+            type = VALUES(type),
+            duration = VALUES(duration),
+            wait = VALUES(wait),
+            channel_name = VALUES(channel_name)
+        `, [order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait]);
+      } else {
+        // Move to complete_orders if no remaining (with channel_name)
+        await conn.query(`
+          INSERT INTO complete_orders (order_id, video_link, channel_name, quantity, timestamp)
+          VALUES (?, ?, ?, ?, NOW())
+        `, [order_id, video_link, channel_name, quantity]);
       }
 
       // Delete from temp_orders
-      await conn.query(
-        `DELETE FROM temp_orders WHERE order_id = ?`,
-        [order_id]
-      );
-
-     
+      await conn.query(`DELETE FROM temp_orders WHERE order_id = ?`, [order_id]);
     }
 
     await conn.query('COMMIT');

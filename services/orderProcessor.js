@@ -1,20 +1,21 @@
 const db = require('../config/db');
-const { getYouTubeVideoId, isValidYouTubeVideo, getVideoTypeAndDuration } = require('../utils/youtube');
+const { 
+  getYouTubeVideoId, 
+  isValidYouTubeVideo, 
+  getVideoTypeAndDuration,
+  getChannelName // ✅ naya function import
+} = require('../utils/youtube');
 const util = require('util');
 
 const processPendingOrders = async () => {
   try {
     const connection = await db.getConnection();
-
     const beginTransaction = util.promisify(connection.beginTransaction).bind(connection);
     const commit = util.promisify(connection.commit).bind(connection);
     const rollback = util.promisify(connection.rollback).bind(connection);
     const query = util.promisify(connection.query).bind(connection);
 
-    // ✅ Start transaction
     await beginTransaction();
-
-    // ✅ Fetch 1 order
     const [order] = await query(`
       SELECT * FROM pending_orders
       ORDER BY RAND()
@@ -30,14 +31,12 @@ const processPendingOrders = async () => {
 
     const { id, order_id, video_link, quantity, remaining, duration } = order;
 
-    // ✅ Delete from pending_orders immediately
     await query('DELETE FROM pending_orders WHERE id = ?', [id]);
-    await commit(); // Commit deletion
+    await commit();
     connection.release();
 
     console.log(`➡️ Picked order: ${order_id} | Removed from pending_orders`);
 
-    // New connection for rest of the logic
     const conn = await db.getConnection();
     const query2 = util.promisify(conn.query).bind(conn);
     const begin = util.promisify(conn.beginTransaction).bind(conn);
@@ -60,7 +59,6 @@ const processPendingOrders = async () => {
         return;
       }
 
-      // ✅ Check for duplicates
       const existing = await query2(`
         SELECT order_id FROM orders WHERE order_id = ? OR video_link = ?
         UNION
@@ -79,7 +77,6 @@ const processPendingOrders = async () => {
         return;
       }
 
-      // ✅ Validate YouTube video
       const { valid, reason } = await isValidYouTubeVideo(videoId);
       if (!valid) {
         await query2(`
@@ -93,13 +90,12 @@ const processPendingOrders = async () => {
         return;
       }
 
-      // ✅ Pass pending_orders.duration into the function
-      const videoInfo = await getVideoTypeAndDuration(videoId, video_link, duration);
+      // ✅ Get channel name
+      const channelName = await getChannelName(videoId) || 'Unknown';
 
-      // ✅ Use whatever duration the function returns
+      const videoInfo = await getVideoTypeAndDuration(videoId, video_link, duration);
       const finalDuration = videoInfo.finalDuration || 60;
 
-      // ✅ Delay generation
       let randomDelaySeconds;
       if (videoInfo.type === 'short') {
         randomDelaySeconds = Math.floor(Math.random() * (120 * 60 - 100 * 60 + 1)) + 100 * 60;
@@ -109,20 +105,18 @@ const processPendingOrders = async () => {
 
       const futureTimestamp = new Date(Date.now() + randomDelaySeconds * 1000);
 
-      // ✅ Delay pool logic
       const delayPool = [45, 60, 75, 90, 120];
       const availableDelays = delayPool.filter(d => d !== order.wait);
       const delaySeconds = availableDelays[Math.floor(Math.random() * availableDelays.length)];
       const wait = delaySeconds;
 
-      // ✅ Insert into orders
+      // ✅ Insert with channel_name
       await query2(`
         INSERT IGNORE INTO orders 
-        (order_id, video_link, quantity, remaining, delay, duration, type, wait, timestamp)
-        VALUES (?, ?, ?, ?, 1, ?, ?, ?, NOW())
-      `, [order_id, video_link, quantity, remaining / videoInfo.multiplier, finalDuration, videoInfo.type, wait]);
+        (order_id, video_link, quantity, remaining, delay, duration, type, wait, channel_name, timestamp)
+        VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, NOW())
+      `, [order_id, video_link, quantity, remaining / videoInfo.multiplier, finalDuration, videoInfo.type, wait, channelName]);
 
-      // ✅ Insert into order_delay
       await query2(`
         INSERT INTO order_delay 
         (order_id, delay, type, timestamp)
@@ -136,7 +130,7 @@ const processPendingOrders = async () => {
       await commit2();
       conn.release();
 
-      console.log(`✅ Order processed: ${order_id} | Type: ${videoInfo.type} | Duration: ${finalDuration} | Delay: ${randomDelaySeconds}s`);
+      console.log(`✅ Order processed: ${order_id} | Channel: ${channelName} | Type: ${videoInfo.type} | Duration: ${finalDuration} | Delay: ${randomDelaySeconds}s`);
 
     } catch (err2) {
       await rollback2();
