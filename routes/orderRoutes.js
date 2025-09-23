@@ -18,11 +18,11 @@ router.post("/fetch-order", async (req, res) => {
   let conn;
 
   try {
-    // ✅ Borrow a promise-based connection from pool
+    // ✅ Promise-based connection
     conn = await db.getConnection();
     await conn.beginTransaction();
 
-    // 🔒 Lock order row with IP + channel limit check
+    // 🔒 Lock order row
     const [orders] = await conn.query(
       `
       SELECT o.* 
@@ -42,7 +42,7 @@ router.post("/fetch-order", async (req, res) => {
           WHERE i2.order_id = o.order_id AND i2.ip_address = ?
         )
         AND (ipt.count IS NULL OR ipt.count < 3)
-        AND o.delay = true
+        AND o.delay = 1 -- ✅ fix here
       ORDER BY RAND()
       LIMIT 1
       FOR UPDATE
@@ -103,7 +103,7 @@ router.post("/fetch-order", async (req, res) => {
     } else {
       const delayPool = [45, 60, 75, 90, 120];
       const availableDelays = delayPool.filter(d => d !== order.wait);
-      const delaySeconds = (availableDelays.length > 0)
+      const delaySeconds = availableDelays.length > 0
         ? availableDelays[Math.floor(Math.random() * availableDelays.length)]
         : delayPool[Math.floor(Math.random() * delayPool.length)];
 
@@ -136,7 +136,6 @@ router.post("/fetch-order", async (req, res) => {
     );
 
     await conn.commit();
-
     return res.status(200).json({ success: true, order });
 
   } catch (error) {
@@ -144,7 +143,7 @@ router.post("/fetch-order", async (req, res) => {
     if (conn) await conn.rollback();
     return res.status(500).json({ success: false, message: "Server Error" });
   } finally {
-    if (conn) conn.release(); // ✅ release connection back to pool
+    if (conn) conn.release();
   }
 });
 
