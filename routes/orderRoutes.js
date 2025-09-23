@@ -17,7 +17,6 @@ router.post("/fetch-order", async (req, res) => {
   let conn;
 
   try {
-    // ✅ Get dedicated connection from pool
     conn = await db.getConnection();
     const queryAsync = (sql, params = []) =>
       new Promise((resolve, reject) => {
@@ -27,12 +26,11 @@ router.post("/fetch-order", async (req, res) => {
         });
       });
 
-    // ✅ Start transaction
     await new Promise((resolve, reject) =>
       conn.beginTransaction(err => (err ? reject(err) : resolve()))
     );
 
-    // ✅ Fetch one order (MariaDB compatible, no SKIP LOCKED, no RAND)
+    // ✅ MariaDB compatible: pick 1 order without FOR UPDATE
     const orders = await queryAsync(
       `
       SELECT o.*
@@ -55,7 +53,6 @@ router.post("/fetch-order", async (req, res) => {
         AND o.delay = 1
       ORDER BY o.id ASC
       LIMIT 1
-      FOR UPDATE
       `,
       [ip, ip]
     );
@@ -71,20 +68,18 @@ router.post("/fetch-order", async (req, res) => {
     const channelName = order.channel_name || null;
     const currentRemaining = parseInt(order.remaining, 10) || 0;
 
-    // ✅ Double-check profile table to avoid duplicates
+    // ✅ Check profile table
     const existingProfile = await queryAsync(
       `SELECT 1 FROM \`${profileTable}\` WHERE order_id = ? OR video_link = ? OR channel_name = ?`,
       [order.order_id, order.video_link, channelName]
     );
 
-    if (existingProfile && existingProfile.length > 0) {
-      await new Promise((resolve, reject) =>
-        conn.rollback(err => (err ? reject(err) : resolve()))
-      );
+    if (existingProfile.length > 0) {
+      await new Promise(resolve => conn.rollback(resolve));
       return res.status(409).json({ success: false, message: "Order already processed" });
     }
 
-    // ✅ Update / insert IP tracking
+    // ✅ IP tracking
     const existingIP = await queryAsync(
       `SELECT * FROM order_ip_tracking WHERE channel_name <=> ? AND ip_address = ?`,
       [channelName, ip]
@@ -143,7 +138,6 @@ router.post("/fetch-order", async (req, res) => {
       [order.order_id, order.video_link, channelName]
     );
 
-    // ✅ Commit transaction
     await new Promise((resolve, reject) =>
       conn.commit(err => (err ? reject(err) : resolve()))
     );
@@ -153,22 +147,19 @@ router.post("/fetch-order", async (req, res) => {
   } catch (error) {
     console.error("❌ Error in /fetch-order:", error);
     try {
-      if (conn) await new Promise((resolve) => conn.rollback(() => resolve()));
+      if (conn) await new Promise(resolve => conn.rollback(resolve));
     } catch (rbErr) {
       console.error("❌ Rollback failed:", rbErr);
     }
     return res.status(500).json({ success: false, message: "Server Error", error: error.message });
   } finally {
     try {
-      if (conn) conn.release(); // ✅ Always release
+      if (conn) conn.release();
     } catch (releaseErr) {
       console.error("❌ conn.release() failed:", releaseErr);
     }
   }
 });
-
-
-
 
 
 
