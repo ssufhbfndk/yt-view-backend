@@ -2,15 +2,16 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');  // Assuming db.js is where your MySQL connection is set up
 
-
 router.post("/fetch-order", async (req, res) => {
   const { username, ip } = req.body;
 
-  if (!username || !ip)
+  if (!username || !ip) {
     return res.status(400).json({ success: false, message: "Username and IP required" });
+  }
 
-  if (!username.match(/^[a-zA-Z0-9_]+$/))
+  if (!username.match(/^[a-zA-Z0-9_]+$/)) {
     return res.status(400).json({ success: false, message: "Invalid username" });
+  }
 
   const profileTable = `profile_${username}`;
   let conn;
@@ -18,11 +19,11 @@ router.post("/fetch-order", async (req, res) => {
   try {
     // Get dedicated connection from pool
     conn = await db.getConnection();
-    await new Promise((resolve, reject) =>
-      conn.beginTransaction(err => (err ? reject(err) : resolve()))
-    );
 
-    // 🔹 Fetch one order safely using SKIP LOCKED
+    // Start transaction
+    await conn.beginTransaction();
+
+    // SELECT with SKIP LOCKED to prevent multiple connections grabbing same order
     const [orders] = await conn.query(
       `
       SELECT o.*
@@ -32,7 +33,7 @@ router.post("/fetch-order", async (req, res) => {
         OR o.video_link = p.video_link
         OR (o.channel_name IS NOT NULL AND o.channel_name = p.channel_name)
       LEFT JOIN order_ip_tracking ipt
-        ON (o.channel_name = ipt.channel_name) AND ipt.ip_address = ?
+        ON o.channel_name = ipt.channel_name AND ipt.ip_address = ?
       WHERE p.order_id IS NULL
         AND p.video_link IS NULL
         AND p.channel_name IS NULL
@@ -58,9 +59,9 @@ router.post("/fetch-order", async (req, res) => {
     const channelName = order.channel_name || null;
     const currentRemaining = parseInt(order.remaining, 10) || 0;
 
-    // ✅ Double-check profile table
+    // Double-check profile table
     const [existingProfile] = await conn.query(
-      `SELECT 1 FROM \`${profileTable}\` WHERE order_id = ? OR video_link = ? OR channel_name <=> ?`,
+      `SELECT 1 FROM \`${profileTable}\` WHERE order_id = ? OR video_link = ? OR channel_name = ?`,
       [order.order_id, order.video_link, channelName]
     );
 
@@ -69,7 +70,7 @@ router.post("/fetch-order", async (req, res) => {
       return res.status(409).json({ success: false, message: "Order already processed" });
     }
 
-    // ✅ Update or insert IP tracking
+    // Update / Insert IP tracking
     const [existingIP] = await conn.query(
       `SELECT * FROM order_ip_tracking WHERE channel_name <=> ? AND ip_address = ?`,
       [channelName, ip]
@@ -82,17 +83,15 @@ router.post("/fetch-order", async (req, res) => {
       );
     } else {
       await conn.query(
-        `INSERT INTO order_ip_tracking (order_id, channel_name, ip_address, count, timestamp)
-         VALUES (?, ?, ?, 1, NOW())`,
+        `INSERT INTO order_ip_tracking (order_id, channel_name, ip_address, count, timestamp) VALUES (?, ?, ?, 1, NOW())`,
         [order.order_id, channelName, ip]
       );
     }
 
-    // ✅ Remaining logic
+    // Remaining logic
     if (currentRemaining <= 0) {
       await conn.query(
-        `INSERT INTO complete_orders (order_id, video_link, channel_name, quantity, timestamp)
-         VALUES (?, ?, ?, ?, NOW())`,
+        `INSERT INTO complete_orders (order_id, video_link, channel_name, quantity, timestamp) VALUES (?, ?, ?, ?, NOW())`,
         [order.order_id, order.video_link, channelName, order.quantity]
       );
       await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
@@ -124,22 +123,21 @@ router.post("/fetch-order", async (req, res) => {
       await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
     }
 
-    // ✅ Save to profile table
+    // Save to profile table
     await conn.query(
-      `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, timestamp)
-       VALUES (?, ?, ?, NOW())`,
+      `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, timestamp) VALUES (?, ?, ?, NOW())`,
       [order.order_id, order.video_link, channelName]
     );
 
     await conn.commit();
     return res.status(200).json({ success: true, order });
 
-  } catch (err) {
-    console.error("❌ Error in /fetch-order:", err);
-    try { if (conn) await conn.rollback(); } catch {}
-    return res.status(500).json({ success: false, message: "Server Error", error: err.message });
+  } catch (error) {
+    console.error("❌ Error in /fetch-order:", error);
+    try { if (conn) await conn.rollback(); } catch (rbErr) { console.error("❌ Rollback failed:", rbErr); }
+    return res.status(500).json({ success: false, message: "Server Error", error: error.message });
   } finally {
-    try { if (conn) conn.release(); } catch {}
+    try { if (conn) conn.release(); } catch (releaseErr) { console.error("❌ conn.release() failed:", releaseErr); }
   }
 });
 
