@@ -17,43 +17,51 @@ router.post("/fetch-order", async (req, res) => {
   const profileTable = `profile_${username}`;
   let conn;
 
-  try {
-    // ✅ Borrow dedicated connection
-    conn = await db.getConnection();
-
-    // helper: promisify conn.query
-    const queryConn = (sql, params = []) =>
-      new Promise((resolve, reject) => {
-        conn.query(sql, params, (err, results) => {
-          if (err) return reject(err);
-          resolve(results);
-        });
+  // helper to promisify conn.query for this dedicated connection
+  const promisifyConnQuery = (conn) => (sql, params = []) =>
+    new Promise((resolve, reject) => {
+      conn.query(sql, params, (err, results) => {
+        if (err) return reject(err);
+        resolve(results);
       });
+    });
 
-    // start transaction
-    await new Promise((resolve, reject) => conn.beginTransaction(err => err ? reject(err) : resolve()));
+  const promisifyBegin = (conn) =>
+    new Promise((resolve, reject) => conn.beginTransaction(err => (err ? reject(err) : resolve())));
+  const promisifyCommit = (conn) =>
+    new Promise((resolve, reject) => conn.commit(err => (err ? reject(err) : resolve())));
+  const promisifyRollback = (conn) =>
+    new Promise((resolve, reject) => conn.rollback(err => (err ? reject(err) : resolve())));
 
-    // 🔒 Lock order row
+  try {
+    // Get dedicated connection from pool
+    conn = await db.getConnection();
+    const queryConn = promisifyConnQuery(conn);
+
+    // Start transaction
+    await promisifyBegin(conn);
+
+    // SELECT - lock row for update
     const orders = await queryConn(
       `
-      SELECT o.* 
+      SELECT o.*
       FROM orders o
-      LEFT JOIN \`${profileTable}\` p 
-        ON o.order_id = p.order_id 
-        OR o.video_link = p.video_link 
-        OR o.channel_name = p.channel_name
-      LEFT JOIN order_ip_tracking ipt 
-        ON (o.channel_name = ipt.channel_name) 
+      LEFT JOIN \`${profileTable}\` p
+        ON o.order_id = p.order_id
+        OR o.video_link = p.video_link
+        OR (o.channel_name IS NOT NULL AND o.channel_name = p.channel_name)
+      LEFT JOIN order_ip_tracking ipt
+        ON (o.channel_name = ipt.channel_name)
         AND ipt.ip_address = ?
-      WHERE p.order_id IS NULL 
+      WHERE p.order_id IS NULL
         AND p.video_link IS NULL
         AND p.channel_name IS NULL
         AND NOT EXISTS (
-          SELECT 1 FROM order_ip_tracking i2 
+          SELECT 1 FROM order_ip_tracking i2
           WHERE i2.order_id = o.order_id AND i2.ip_address = ?
         )
         AND (ipt.count IS NULL OR ipt.count < 3)
-        AND o.delay = true
+        AND o.delay = 1
       ORDER BY RAND()
       LIMIT 1
       FOR UPDATE
@@ -61,71 +69,69 @@ router.post("/fetch-order", async (req, res) => {
       [ip, ip]
     );
 
-    if (orders.length === 0) {
-      await new Promise((resolve, reject) => conn.commit(err => err ? reject(err) : resolve()));
+    if (!orders || orders.length === 0) {
+      await promisifyCommit(conn);
       return res.status(200).json({ success: false, message: "No new orders found" });
     }
 
     const order = orders[0];
+
+    // Defensive: if schema doesn't include channel_name, fallback to null
+    const channelName = order.hasOwnProperty("channel_name") ? order.channel_name : null;
+
     const currentRemaining = parseInt(order.remaining, 10) || 0;
 
-    // ✅ Double check in profile table
+    // Double-check profile table to avoid duplicates
     const existingProfile = await queryConn(
-      `SELECT 1 FROM \`${profileTable}\` 
-       WHERE order_id = ? OR video_link = ? OR channel_name = ?`,
-      [order.order_id, order.video_link, order.channel_name]
+      `SELECT 1 FROM \`${profileTable}\` WHERE order_id = ? OR video_link = ? OR channel_name = ?`,
+      [order.order_id, order.video_link, channelName]
     );
 
-    if (existingProfile.length > 0) {
-      await new Promise((resolve, reject) => conn.rollback(err => err ? reject(err) : resolve()));
+    if (existingProfile && existingProfile.length > 0) {
+      await promisifyRollback(conn);
       return res.status(409).json({ success: false, message: "Order already processed" });
     }
 
-    // ✅ Update IP tracking
+    // Update / insert IP tracking (use channelName which may be null)
     const existingIP = await queryConn(
-      `SELECT * FROM order_ip_tracking WHERE channel_name = ? AND ip_address = ?`,
-      [order.channel_name, ip]
+      `SELECT * FROM order_ip_tracking WHERE channel_name <=> ? AND ip_address = ?`,
+      [channelName, ip]
     );
 
-    if (existingIP.length > 0) {
+    if (existingIP && existingIP.length > 0) {
       await queryConn(
-        `UPDATE order_ip_tracking 
-         SET count = count + 1, timestamp = NOW() 
-         WHERE channel_name = ? AND ip_address = ?`,
-        [order.channel_name, ip]
+        `UPDATE order_ip_tracking SET count = count + 1, timestamp = NOW() WHERE channel_name <=> ? AND ip_address = ?`,
+        [channelName, ip]
       );
     } else {
       await queryConn(
-        `INSERT INTO order_ip_tracking (order_id, channel_name, ip_address, count, timestamp) 
-         VALUES (?, ?, ?, 1, NOW())`,
-        [order.order_id, order.channel_name, ip]
+        `INSERT INTO order_ip_tracking (order_id, channel_name, ip_address, count, timestamp) VALUES (?, ?, ?, 1, NOW())`,
+        [order.order_id, channelName, ip]
       );
     }
 
-    // ✅ Remaining logic
+    // Remaining logic
     if (currentRemaining <= 0) {
       await queryConn(
-        `INSERT INTO complete_orders (order_id, video_link, channel_name, quantity, timestamp) 
-         VALUES (?, ?, ?, ?, NOW())`,
-        [order.order_id, order.video_link, order.channel_name, order.quantity]
+        `INSERT INTO complete_orders (order_id, video_link, channel_name, quantity, timestamp) VALUES (?, ?, ?, ?, NOW())`,
+        [order.order_id, order.video_link, channelName, order.quantity]
       );
       await queryConn(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
       await queryConn(`DELETE FROM order_delay WHERE order_id = ?`, [order.order_id]);
     } else {
       const delayPool = [45, 60, 75, 90, 120];
-      const availableDelays = delayPool.filter(d => d !== order.wait);
-      const delaySeconds = (availableDelays.length > 0)
+      const availableDelays = delayPool.filter(d => d !== Number(order.wait));
+      const delaySeconds = availableDelays.length > 0
         ? availableDelays[Math.floor(Math.random() * availableDelays.length)]
         : delayPool[Math.floor(Math.random() * delayPool.length)];
 
       await queryConn(
-        `INSERT INTO temp_orders 
-          (order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait, timestamp) 
+        `INSERT INTO temp_orders (order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait, timestamp)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
         [
           order.order_id,
           order.video_link,
-          order.channel_name,
+          channelName,
           order.quantity,
           currentRemaining,
           order.delay,
@@ -139,26 +145,32 @@ router.post("/fetch-order", async (req, res) => {
       await queryConn(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
     }
 
-    // ✅ Save to profile table
+    // Save to profile table
     await queryConn(
-      `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, timestamp) 
-       VALUES (?, ?, ?, NOW())`,
-      [order.order_id, order.video_link, order.channel_name]
+      `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, timestamp) VALUES (?, ?, ?, NOW())`,
+      [order.order_id, order.video_link, channelName]
     );
 
-    await new Promise((resolve, reject) => conn.commit(err => err ? reject(err) : resolve()));
-
+    // commit and return
+    await promisifyCommit(conn);
     return res.status(200).json({ success: true, order });
 
   } catch (error) {
     console.error("❌ Error in /fetch-order:", error);
-    if (conn) await new Promise((resolve, reject) => conn.rollback(err => err ? reject(err) : resolve()));
-    return res.status(500).json({ success: false, message: "Server Error" });
+    try {
+      if (conn) await promisifyRollback(conn);
+    } catch (rbErr) {
+      console.error("❌ Rollback failed:", rbErr);
+    }
+    return res.status(500).json({ success: false, message: "Server Error", error: error.message });
   } finally {
-    if (conn) conn.release(); // ✅ release connection back to pool
+    try {
+      if (conn) conn.release();
+    } catch (releaseErr) {
+      console.error("❌ conn.release() failed:", releaseErr);
+    }
   }
 });
-
 
 // API 1 - Receive Data from user and Save to pending_orders
 router.post('/process', async (req, res) => {
