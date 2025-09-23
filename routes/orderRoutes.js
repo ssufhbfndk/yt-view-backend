@@ -18,7 +18,7 @@ router.post("/fetch-order", async (req, res) => {
   let conn;
 
   try {
-    // ✅ Borrow a connection from the pool
+    // ✅ Borrow a promise-based connection from pool
     conn = await db.getConnection();
     await conn.beginTransaction();
 
@@ -28,7 +28,9 @@ router.post("/fetch-order", async (req, res) => {
       SELECT o.* 
       FROM orders o
       LEFT JOIN \`${profileTable}\` p 
-        ON o.order_id = p.order_id OR o.video_link = p.video_link OR o.channel_name = p.channel_name
+        ON o.order_id = p.order_id 
+        OR o.video_link = p.video_link 
+        OR o.channel_name = p.channel_name
       LEFT JOIN order_ip_tracking ipt 
         ON (o.channel_name = ipt.channel_name) 
         AND ipt.ip_address = ?
@@ -58,7 +60,8 @@ router.post("/fetch-order", async (req, res) => {
 
     // ✅ Double check in profile table
     const [existingProfile] = await conn.query(
-      `SELECT 1 FROM \`${profileTable}\` WHERE order_id = ? OR video_link = ? OR channel_name = ?`,
+      `SELECT 1 FROM \`${profileTable}\` 
+       WHERE order_id = ? OR video_link = ? OR channel_name = ?`,
       [order.order_id, order.video_link, order.channel_name]
     );
 
