@@ -30,7 +30,18 @@ router.post("/fetch-order", async (req, res) => {
     // start transaction
     await new Promise((resolve, reject) => conn.beginTransaction(err => (err ? reject(err) : resolve())));
 
-    // fetch one order (MariaDB compatible)
+    // fast selection without RAND()
+    // pick a random id between min and max to simulate randomness
+    const minMax = await query(`SELECT MIN(id) AS minId, MAX(id) AS maxId FROM orders WHERE delay = 1`);
+    if (!minMax || !minMax[0] || minMax[0].minId === null) {
+      await new Promise((resolve, reject) => conn.commit(err => (err ? reject(err) : resolve())));
+      return res.status(200).json({ success: false, message: "No new orders found" });
+    }
+
+    const { minId, maxId } = minMax[0];
+    const randomId = Math.floor(Math.random() * (maxId - minId + 1)) + minId;
+
+    // fetch one order >= randomId
     const orders = await query(
       `SELECT o.*
        FROM orders o
@@ -41,7 +52,8 @@ router.post("/fetch-order", async (req, res) => {
        LEFT JOIN order_ip_tracking ipt
          ON o.channel_name = ipt.channel_name
          AND ipt.ip_address = ?
-       WHERE p.order_id IS NULL
+       WHERE o.id >= ? AND o.delay = 1
+         AND p.order_id IS NULL
          AND p.video_link IS NULL
          AND p.channel_name IS NULL
          AND NOT EXISTS (
@@ -49,16 +61,45 @@ router.post("/fetch-order", async (req, res) => {
            WHERE i2.order_id = o.order_id AND i2.ip_address = ?
          )
          AND (ipt.count IS NULL OR ipt.count < 3)
-         AND o.delay = 1
        ORDER BY o.id ASC
        LIMIT 1
        FOR UPDATE`,
-      [ip, ip]
+      [ip, randomId, ip]
     );
 
     if (!orders || orders.length === 0) {
-      await new Promise((resolve, reject) => conn.commit(err => (err ? reject(err) : resolve())));
-      return res.status(200).json({ success: false, message: "No new orders found" });
+      // fallback: pick smallest id if randomId fetch returned nothing
+      const fallbackOrders = await query(
+        `SELECT o.*
+         FROM orders o
+         LEFT JOIN \`${profileTable}\` p
+           ON o.order_id = p.order_id
+           OR o.video_link = p.video_link
+           OR (o.channel_name IS NOT NULL AND o.channel_name = p.channel_name)
+         LEFT JOIN order_ip_tracking ipt
+           ON o.channel_name = ipt.channel_name
+           AND ipt.ip_address = ?
+         WHERE o.delay = 1
+           AND p.order_id IS NULL
+           AND p.video_link IS NULL
+           AND p.channel_name IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM order_ip_tracking i2
+             WHERE i2.order_id = o.order_id AND i2.ip_address = ?
+           )
+           AND (ipt.count IS NULL OR ipt.count < 3)
+         ORDER BY o.id ASC
+         LIMIT 1
+         FOR UPDATE`,
+        [ip, ip]
+      );
+
+      if (!fallbackOrders || fallbackOrders.length === 0) {
+        await new Promise((resolve, reject) => conn.commit(err => (err ? reject(err) : resolve())));
+        return res.status(200).json({ success: false, message: "No new orders found" });
+      } else {
+        orders.push(fallbackOrders[0]);
+      }
     }
 
     const order = orders[0];
@@ -145,6 +186,7 @@ router.post("/fetch-order", async (req, res) => {
     }
   }
 });
+
 
 
 
