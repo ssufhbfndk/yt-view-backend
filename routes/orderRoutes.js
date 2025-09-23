@@ -8,7 +8,6 @@ router.post("/fetch-order", async (req, res) => {
   if (!username || !ip) {
     return res.status(400).json({ success: false, message: "Username and IP required" });
   }
-
   if (!username.match(/^[a-zA-Z0-9_]+$/)) {
     return res.status(400).json({ success: false, message: "Invalid username" });
   }
@@ -30,37 +29,33 @@ router.post("/fetch-order", async (req, res) => {
       conn.beginTransaction(err => (err ? reject(err) : resolve()))
     );
 
-    // ✅ MariaDB compatible: pick 1 order without FOR UPDATE
+    // 🔹 Fetch one order with row-level lock
     const orders = await queryAsync(
-      `
-      SELECT o.*
-      FROM orders o
-      LEFT JOIN \`${profileTable}\` p
-        ON o.order_id = p.order_id
-        OR o.video_link = p.video_link
-        OR (o.channel_name IS NOT NULL AND o.channel_name = p.channel_name)
-      LEFT JOIN order_ip_tracking ipt
-        ON (o.channel_name = ipt.channel_name)
-        AND ipt.ip_address = ?
-      WHERE p.order_id IS NULL
-        AND p.video_link IS NULL
-        AND p.channel_name IS NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM order_ip_tracking i2
-          WHERE i2.order_id = o.order_id AND i2.ip_address = ?
-        )
-        AND (ipt.count IS NULL OR ipt.count < 3)
-        AND o.delay = 1
-      ORDER BY o.id ASC
-      LIMIT 1
-      `,
+      `SELECT o.*
+       FROM orders o
+       LEFT JOIN \`${profileTable}\` p
+         ON o.order_id = p.order_id
+         OR o.video_link = p.video_link
+         OR (o.channel_name IS NOT NULL AND o.channel_name = p.channel_name)
+       LEFT JOIN order_ip_tracking ipt
+         ON (o.channel_name = ipt.channel_name AND ipt.ip_address = ?)
+       WHERE p.order_id IS NULL
+         AND p.video_link IS NULL
+         AND p.channel_name IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM order_ip_tracking i2
+           WHERE i2.order_id = o.order_id AND i2.ip_address = ?
+         )
+         AND (ipt.count IS NULL OR ipt.count < 3)
+         AND o.delay = 1
+       ORDER BY o.id ASC
+       LIMIT 1
+       FOR UPDATE`, // 🔒 Locks the selected row
       [ip, ip]
     );
 
     if (!orders || orders.length === 0) {
-      await new Promise((resolve, reject) =>
-        conn.commit(err => (err ? reject(err) : resolve()))
-      );
+      await new Promise(resolve => conn.commit(resolve));
       return res.status(200).json({ success: false, message: "No new orders found" });
     }
 
@@ -68,23 +63,21 @@ router.post("/fetch-order", async (req, res) => {
     const channelName = order.channel_name || null;
     const currentRemaining = parseInt(order.remaining, 10) || 0;
 
-    // ✅ Check profile table
+    // 🔹 Double-check profile table
     const existingProfile = await queryAsync(
       `SELECT 1 FROM \`${profileTable}\` WHERE order_id = ? OR video_link = ? OR channel_name = ?`,
       [order.order_id, order.video_link, channelName]
     );
-
     if (existingProfile.length > 0) {
       await new Promise(resolve => conn.rollback(resolve));
       return res.status(409).json({ success: false, message: "Order already processed" });
     }
 
-    // ✅ IP tracking
+    // 🔹 IP tracking
     const existingIP = await queryAsync(
       `SELECT * FROM order_ip_tracking WHERE channel_name <=> ? AND ip_address = ?`,
       [channelName, ip]
     );
-
     if (existingIP.length > 0) {
       await queryAsync(
         `UPDATE order_ip_tracking SET count = count + 1, timestamp = NOW() WHERE channel_name <=> ? AND ip_address = ?`,
@@ -97,7 +90,7 @@ router.post("/fetch-order", async (req, res) => {
       );
     }
 
-    // ✅ Remaining logic
+    // 🔹 Remaining logic
     if (currentRemaining <= 0) {
       await queryAsync(
         `INSERT INTO complete_orders (order_id, video_link, channel_name, quantity, timestamp) VALUES (?, ?, ?, ?, NOW())`,
@@ -112,8 +105,9 @@ router.post("/fetch-order", async (req, res) => {
         ? availableDelays[Math.floor(Math.random() * availableDelays.length)]
         : delayPool[Math.floor(Math.random() * delayPool.length)];
 
+      // 🔹 Insert into temp_orders only inside the transaction
       await queryAsync(
-        `INSERT INTO temp_orders (order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait, timestamp)
+        `INSERT IGNORE INTO temp_orders (order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait, timestamp)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
         [
           order.order_id,
@@ -132,32 +126,21 @@ router.post("/fetch-order", async (req, res) => {
       await queryAsync(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
     }
 
-    // ✅ Save to profile table
+    // 🔹 Save to profile table
     await queryAsync(
       `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, timestamp) VALUES (?, ?, ?, NOW())`,
       [order.order_id, order.video_link, channelName]
     );
 
-    await new Promise((resolve, reject) =>
-      conn.commit(err => (err ? reject(err) : resolve()))
-    );
-
+    await new Promise(resolve => conn.commit(resolve));
     return res.status(200).json({ success: true, order });
 
   } catch (error) {
     console.error("❌ Error in /fetch-order:", error);
-    try {
-      if (conn) await new Promise(resolve => conn.rollback(resolve));
-    } catch (rbErr) {
-      console.error("❌ Rollback failed:", rbErr);
-    }
+    try { if (conn) await new Promise(resolve => conn.rollback(resolve)); } catch {}
     return res.status(500).json({ success: false, message: "Server Error", error: error.message });
   } finally {
-    try {
-      if (conn) conn.release();
-    } catch (releaseErr) {
-      console.error("❌ conn.release() failed:", releaseErr);
-    }
+    try { if (conn) conn.release(); } catch {}
   }
 });
 
