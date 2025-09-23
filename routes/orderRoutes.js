@@ -4,147 +4,149 @@ const db = require('../config/db');  // Assuming db.js is where your MySQL conne
 
 
 router.post("/fetch-order", async (req, res) => {
-  const { username, ip } = req.body;
+ const { username, ip } = req.body;
 
-  if (!username || !ip) {
-    return res.status(400).json({ success: false, message: "Username and IP required" });
+if (!username || !ip) {
+  return res.status(400).json({ success: false, message: "Username and IP required" });
+}
+
+if (!username.match(/^[a-zA-Z0-9_]+$/)) {
+  return res.status(400).json({ success: false, message: "Invalid username" });
+}
+
+const profileTable = `profile_${username}`;
+let conn;
+
+try {
+  // ✅ Borrow connection (but no await query here, only callback style)
+  conn = await db.getConnection();
+  await new Promise((resolve, reject) => conn.beginTransaction(err => err ? reject(err) : resolve()));
+
+  // 🔒 Lock order row
+  const orders = await db.queryAsync(
+    `
+    SELECT o.* 
+    FROM orders o
+    LEFT JOIN \`${profileTable}\` p 
+      ON o.order_id = p.order_id 
+      OR o.video_link = p.video_link 
+      OR o.channel_name = p.channel_name
+    LEFT JOIN order_ip_tracking ipt 
+      ON (o.channel_name = ipt.channel_name) 
+      AND ipt.ip_address = ?
+    WHERE p.order_id IS NULL 
+      AND p.video_link IS NULL
+      AND p.channel_name IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM order_ip_tracking i2 
+        WHERE i2.order_id = o.order_id AND i2.ip_address = ?
+      )
+      AND (ipt.count IS NULL OR ipt.count < 3)
+      AND o.delay = true
+    ORDER BY RAND()
+    LIMIT 1
+    FOR UPDATE
+    `,
+    [ip, ip]
+  );
+
+  if (orders.length === 0) {
+    await new Promise((resolve, reject) => conn.commit(err => err ? reject(err) : resolve()));
+    return res.status(200).json({ success: false, message: "No new orders found" });
   }
 
-  if (!username.match(/^[a-zA-Z0-9_]+$/)) {
-    return res.status(400).json({ success: false, message: "Invalid username" });
+  const order = orders[0];
+  const currentRemaining = parseInt(order.remaining, 10) || 0;
+
+  // ✅ Double check in profile table
+  const existingProfile = await db.queryAsync(
+    `SELECT 1 FROM \`${profileTable}\` 
+     WHERE order_id = ? OR video_link = ? OR channel_name = ?`,
+    [order.order_id, order.video_link, order.channel_name]
+  );
+
+  if (existingProfile.length > 0) {
+    await new Promise((resolve, reject) => conn.rollback(err => err ? reject(err) : resolve()));
+    return res.status(409).json({ success: false, message: "Order already processed" });
   }
 
-  const profileTable = `profile_${username}`;
-  let conn;
+  // ✅ Update IP tracking
+  const existingIP = await db.queryAsync(
+    `SELECT * FROM order_ip_tracking WHERE channel_name = ? AND ip_address = ?`,
+    [order.channel_name, ip]
+  );
 
-  try {
-    // ✅ Promise-based connection
-    conn = await db.getConnection();
-    await conn.beginTransaction();
-
-    // 🔒 Lock order row
-    const [orders] = await conn.query(
-      `
-      SELECT o.* 
-      FROM orders o
-      LEFT JOIN \`${profileTable}\` p 
-        ON o.order_id = p.order_id 
-        OR o.video_link = p.video_link 
-        OR o.channel_name = p.channel_name
-      LEFT JOIN order_ip_tracking ipt 
-        ON (o.channel_name = ipt.channel_name) 
-        AND ipt.ip_address = ?
-      WHERE p.order_id IS NULL 
-        AND p.video_link IS NULL
-        AND p.channel_name IS NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM order_ip_tracking i2 
-          WHERE i2.order_id = o.order_id AND i2.ip_address = ?
-        )
-        AND (ipt.count IS NULL OR ipt.count < 3)
-        AND o.delay = 1 -- ✅ fix here
-      ORDER BY RAND()
-      LIMIT 1
-      FOR UPDATE
-      `,
-      [ip, ip]
-    );
-
-    if (orders.length === 0) {
-      await conn.commit();
-      return res.status(200).json({ success: false, message: "No new orders found" });
-    }
-
-    const order = orders[0];
-    const currentRemaining = parseInt(order.remaining, 10) || 0;
-
-    // ✅ Double check in profile table
-    const [existingProfile] = await conn.query(
-      `SELECT 1 FROM \`${profileTable}\` 
-       WHERE order_id = ? OR video_link = ? OR channel_name = ?`,
-      [order.order_id, order.video_link, order.channel_name]
-    );
-
-    if (existingProfile.length > 0) {
-      await conn.rollback();
-      return res.status(409).json({ success: false, message: "Order already processed" });
-    }
-
-    // ✅ Update IP tracking
-    const [existingIP] = await conn.query(
-      `SELECT * FROM order_ip_tracking WHERE channel_name = ? AND ip_address = ?`,
+  if (existingIP.length > 0) {
+    await db.queryAsync(
+      `UPDATE order_ip_tracking 
+       SET count = count + 1, timestamp = NOW() 
+       WHERE channel_name = ? AND ip_address = ?`,
       [order.channel_name, ip]
     );
+  } else {
+    await db.queryAsync(
+      `INSERT INTO order_ip_tracking (order_id, channel_name, ip_address, count, timestamp) 
+       VALUES (?, ?, ?, 1, NOW())`,
+      [order.order_id, order.channel_name, ip]
+    );
+  }
 
-    if (existingIP.length > 0) {
-      await conn.query(
-        `UPDATE order_ip_tracking 
-         SET count = count + 1, timestamp = NOW() 
-         WHERE channel_name = ? AND ip_address = ?`,
-        [order.channel_name, ip]
-      );
-    } else {
-      await conn.query(
-        `INSERT INTO order_ip_tracking (order_id, channel_name, ip_address, count, timestamp) 
-         VALUES (?, ?, ?, 1, NOW())`,
-        [order.order_id, order.channel_name, ip]
-      );
-    }
+  // ✅ Remaining logic
+  if (currentRemaining <= 0) {
+    await db.queryAsync(
+      `INSERT INTO complete_orders (order_id, video_link, channel_name, quantity, timestamp) 
+       VALUES (?, ?, ?, ?, NOW())`,
+      [order.order_id, order.video_link, order.channel_name, order.quantity]
+    );
+    await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
+    await db.queryAsync(`DELETE FROM order_delay WHERE order_id = ?`, [order.order_id]);
+  } else {
+    const delayPool = [45, 60, 75, 90, 120];
+    const availableDelays = delayPool.filter(d => d !== order.wait);
+    const delaySeconds = (availableDelays.length > 0)
+      ? availableDelays[Math.floor(Math.random() * availableDelays.length)]
+      : delayPool[Math.floor(Math.random() * delayPool.length)];
 
-    // ✅ Remaining logic
-    if (currentRemaining <= 0) {
-      await conn.query(
-        `INSERT INTO complete_orders (order_id, video_link, channel_name, quantity, timestamp) 
-         VALUES (?, ?, ?, ?, NOW())`,
-        [order.order_id, order.video_link, order.channel_name, order.quantity]
-      );
-      await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
-      await conn.query(`DELETE FROM order_delay WHERE order_id = ?`, [order.order_id]);
-    } else {
-      const delayPool = [45, 60, 75, 90, 120];
-      const availableDelays = delayPool.filter(d => d !== order.wait);
-      const delaySeconds = availableDelays.length > 0
-        ? availableDelays[Math.floor(Math.random() * availableDelays.length)]
-        : delayPool[Math.floor(Math.random() * delayPool.length)];
-
-      await conn.query(
-        `INSERT INTO temp_orders 
-          (order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait, timestamp) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
-        [
-          order.order_id,
-          order.video_link,
-          order.channel_name,
-          order.quantity,
-          currentRemaining,
-          order.delay,
-          order.type,
-          order.duration,
-          delaySeconds,
-          delaySeconds
-        ]
-      );
-
-      await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
-    }
-
-    // ✅ Save to profile table
-    await conn.query(
-      `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, timestamp) 
-       VALUES (?, ?, ?, NOW())`,
-      [order.order_id, order.video_link, order.channel_name]
+    await db.queryAsync(
+      `INSERT INTO temp_orders 
+        (order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait, timestamp) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
+      [
+        order.order_id,
+        order.video_link,
+        order.channel_name,
+        order.quantity,
+        currentRemaining,
+        order.delay,
+        order.type,
+        order.duration,
+        delaySeconds,
+        delaySeconds
+      ]
     );
 
-    await conn.commit();
-    return res.status(200).json({ success: true, order });
-
-  } catch (error) {
-    console.error("❌ Error in /fetch-order:", error);
-    if (conn) await conn.rollback();
-    return res.status(500).json({ success: false, message: "Server Error" });
-  } finally {
-    if (conn) conn.release();
+    await db.queryAsync(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
   }
+
+  // ✅ Save to profile table
+  await db.queryAsync(
+    `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, timestamp) 
+     VALUES (?, ?, ?, NOW())`,
+    [order.order_id, order.video_link, order.channel_name]
+  );
+
+  await new Promise((resolve, reject) => conn.commit(err => err ? reject(err) : resolve()));
+
+  return res.status(200).json({ success: true, order });
+
+} catch (error) {
+  console.error("❌ Error in /fetch-order:", error);
+  if (conn) await new Promise((resolve, reject) => conn.rollback(err => err ? reject(err) : resolve()));
+  return res.status(500).json({ success: false, message: "Server Error" });
+} finally {
+  if (conn) conn.release(); // ✅ release connection back to pool
+}
+
 });
 
 
