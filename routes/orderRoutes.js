@@ -15,14 +15,12 @@ router.post("/fetch-order", async (req, res) => {
   }
 
   const profileTable = `profile_${username}`;
-  let connection;
   let conn;
 
   try {
-    connection = await db.getConnection();
-    conn = connection.promise();
-
-    await conn.query("START TRANSACTION");
+    // ✅ Borrow a connection from the pool
+    conn = await db.getConnection();
+    await conn.beginTransaction();
 
     // 🔒 Lock order row with IP + channel limit check
     const [orders] = await conn.query(
@@ -37,12 +35,10 @@ router.post("/fetch-order", async (req, res) => {
       WHERE p.order_id IS NULL 
         AND p.video_link IS NULL
         AND p.channel_name IS NULL
-        -- ❌ Same IP cannot repeat same order_id
         AND NOT EXISTS (
           SELECT 1 FROM order_ip_tracking i2 
           WHERE i2.order_id = o.order_id AND i2.ip_address = ?
         )
-        -- ✅ Same IP can watch max 3 videos per channel
         AND (ipt.count IS NULL OR ipt.count < 3)
         AND o.delay = true
       ORDER BY RAND()
@@ -53,7 +49,7 @@ router.post("/fetch-order", async (req, res) => {
     );
 
     if (orders.length === 0) {
-      await conn.query("COMMIT");
+      await conn.commit();
       return res.status(200).json({ success: false, message: "No new orders found" });
     }
 
@@ -67,11 +63,11 @@ router.post("/fetch-order", async (req, res) => {
     );
 
     if (existingProfile.length > 0) {
-      await conn.query("ROLLBACK");
+      await conn.rollback();
       return res.status(409).json({ success: false, message: "Order already processed" });
     }
 
-    // ✅ Update IP tracking (order_id only once, channel up to 3 times)
+    // ✅ Update IP tracking
     const [existingIP] = await conn.query(
       `SELECT * FROM order_ip_tracking WHERE channel_name = ? AND ip_address = ?`,
       [order.channel_name, ip]
@@ -136,20 +132,16 @@ router.post("/fetch-order", async (req, res) => {
       [order.order_id, order.video_link, order.channel_name]
     );
 
-    await conn.query("COMMIT");
+    await conn.commit();
 
     return res.status(200).json({ success: true, order });
 
   } catch (error) {
     console.error("❌ Error in /fetch-order:", error);
-    try {
-      if (conn) await conn.query("ROLLBACK");
-    } catch (e) {
-      console.error("Rollback error:", e);
-    }
+    if (conn) await conn.rollback();
     return res.status(500).json({ success: false, message: "Server Error" });
   } finally {
-    if (connection) connection.release();
+    if (conn) conn.release(); // ✅ release connection back to pool
   }
 });
 
