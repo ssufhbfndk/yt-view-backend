@@ -10,26 +10,54 @@ const pool = mysql.createPool({
   password: process.env.DB_PASSWORD || "",
   database: process.env.DB_NAME || "",
   waitForConnections: true,
-  connectionLimit: 100, // Allows multiple connections
+  connectionLimit: 30, // ✅ Allows multiple connections
   connectTimeout: 10000,
   queueLimit: 0,
 });
 
 // ✅ Wrap pool in promise-based queries
 const db = {
-  // Callback style (for existing APIs)
   query: (sql, params, callback) => {
-    pool.query(sql, params, callback); // ✅ Direct pool query, no getConnection
+    pool.getConnection((err, connection) => {
+      if (err) {
+        console.error("❌ Database Connection Error:", err.message);
+        return callback(err, null);
+      }
+      connection.query(sql, params, (queryErr, results) => {
+        connection.release(); // ✅ Release connection after query execution
+        callback(queryErr, results);
+      });
+    });
   },
 
-  // Promise style
   queryAsync: (sql, params = []) => {
-    return pool.promise().query(sql, params).then(([results]) => results);
+    return new Promise((resolve, reject) => {
+      pool.getConnection((err, connection) => {
+        if (err) {
+          console.error("❌ Database Connection Error:", err.message);
+          return reject(err);
+        }
+
+        connection.query(sql, params, (queryErr, results) => {
+          connection.release(); // ✅ Always release connection
+          if (queryErr) reject(queryErr);
+          else resolve(results);
+        });
+      });
+    });
   },
 
-  // Transactions / single connection usage
+  // ✅ Fix `.getConnection()` issue for transactions
   getConnection: () => {
-    return pool.promise().getConnection(); // ✅ returns promise-based connection
+    return new Promise((resolve, reject) => {
+      pool.getConnection((err, connection) => {
+        if (err) {
+          console.error("❌ Database Connection Error:", err.message);
+          return reject(err);
+        }
+        resolve(connection);
+      });
+    });
   },
 };
 
