@@ -25,24 +25,28 @@ router.post("/fetch-order", async (req, res) => {
     await conn.query("START TRANSACTION");
 
     // 🔒 Lock one order row that isn't processed yet
-    const [orders] = await conn.query(
-      `
-      SELECT o.* 
-      FROM orders o
-      LEFT JOIN \`${profileTable}\` p 
-        ON o.order_id = p.order_id OR o.video_link = p.video_link
-      LEFT JOIN order_ip_tracking ipt 
-        ON o.order_id = ipt.order_id AND ipt.ip_address = ?
-      WHERE p.order_id IS NULL 
-        AND p.video_link IS NULL
-        AND (ipt.count IS NULL OR ipt.count < 1)
-        AND o.delay = true
-      ORDER BY RAND()
-      LIMIT 1
-      FOR UPDATE
-      `,
-      [ip]
-    );
+   const [orders] = await conn.query(
+  `
+  SELECT o.* 
+  FROM orders o
+  LEFT JOIN \`${profileTable}\` p 
+    ON o.order_id = p.order_id 
+    OR o.video_link = p.video_link
+    OR o.channel_name = p.channel_name
+  LEFT JOIN order_ip_tracking ipt 
+    ON o.channel_name = ipt.channel_name
+    AND ipt.ip_address = ?
+  WHERE p.order_id IS NULL 
+    AND p.video_link IS NULL
+    AND p.channel_name IS NULL           -- duplicate channel skip
+    AND (ipt.count IS NULL OR ipt.count < 2)   -- max 2 per IP per channel
+    AND o.delay = true
+  ORDER BY RAND()
+  LIMIT 1
+  FOR UPDATE
+  `,
+  [ip]
+);
 
     if (orders.length === 0) {
       await conn.query("COMMIT");
