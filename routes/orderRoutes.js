@@ -24,7 +24,7 @@ router.post("/fetch-order", async (req, res) => {
 
     await conn.query("START TRANSACTION");
 
-    // 🔒 Lock order row
+    // 🔒 Lock one order row that isn't processed yet
     const [orders] = await conn.query(
       `
       SELECT o.* 
@@ -52,7 +52,7 @@ router.post("/fetch-order", async (req, res) => {
     const order = orders[0];
     const currentRemaining = parseInt(order.remaining, 10) || 0;
 
-    // ✅ Double check profile table to avoid race condition
+    // ✅ Double-check profile table to avoid race condition
     const [existingProfile] = await conn.query(
       `SELECT 1 FROM \`${profileTable}\` WHERE order_id = ?`,
       [order.order_id]
@@ -63,7 +63,7 @@ router.post("/fetch-order", async (req, res) => {
       return res.status(409).json({ success: false, message: "Order already processed" });
     }
 
-    // ✅ Update IP tracking
+    // ✅ Update IP tracking with channel_name
     const [existingIP] = await conn.query(
       `SELECT * FROM order_ip_tracking WHERE order_id = ? AND ip_address = ?`,
       [order.order_id, ip]
@@ -71,27 +71,31 @@ router.post("/fetch-order", async (req, res) => {
 
     if (existingIP.length > 0) {
       await conn.query(
-        `UPDATE order_ip_tracking SET count = count + 1, timestamp = NOW() WHERE order_id = ? AND ip_address = ?`,
-        [order.order_id, ip]
+        `UPDATE order_ip_tracking 
+           SET count = count + 1, channel_name = ?, timestamp = NOW() 
+         WHERE order_id = ? AND ip_address = ?`,
+        [order.channel_name, order.order_id, ip]
       );
     } else {
       await conn.query(
-        `INSERT INTO order_ip_tracking (order_id, ip_address, count, timestamp) VALUES (?, ?, 1, NOW())`,
-        [order.order_id, ip]
+        `INSERT INTO order_ip_tracking (order_id, ip_address, count, channel_name, timestamp) 
+         VALUES (?, ?, 1, ?, NOW())`,
+        [order.order_id, ip, order.channel_name]
       );
     }
 
-    // ✅ Remaining logic (no decrement)
+    // ✅ Process order
     if (currentRemaining <= 0) {
       // Move to complete_orders
       await conn.query(
-        `INSERT INTO complete_orders (order_id, video_link, quantity, timestamp) VALUES (?, ?, ?, NOW())`,
-        [order.order_id, order.video_link, order.quantity]
+        `INSERT INTO complete_orders (order_id, video_link, quantity, channel_name, timestamp) 
+         VALUES (?, ?, ?, ?, NOW())`,
+        [order.order_id, order.video_link, order.quantity, order.channel_name]
       );
       await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
       await conn.query(`DELETE FROM order_delay WHERE order_id = ?`, [order.order_id]);
     } else {
-      // Delay logic same
+      // Delay logic for temp_orders
       const delayPool = [45, 60, 75, 90, 120];
       const availableDelays = delayPool.filter(d => d !== order.wait);
       const delaySeconds = (availableDelays.length > 0)
@@ -100,17 +104,18 @@ router.post("/fetch-order", async (req, res) => {
 
       await conn.query(
         `INSERT INTO temp_orders 
-          (order_id, video_link, quantity, remaining, delay, type, duration, wait, timestamp) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
+          (order_id, video_link, quantity, remaining, delay, type, duration, wait, channel_name, timestamp) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
         [
           order.order_id,
           order.video_link,
           order.quantity,
-          currentRemaining,   // 👈 same remaining value, no decrement
+          currentRemaining,
           order.delay,
           order.type,
           order.duration,
           delaySeconds,
+          order.channel_name,
           delaySeconds
         ]
       );
@@ -118,10 +123,11 @@ router.post("/fetch-order", async (req, res) => {
       await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
     }
 
-    // ✅ Log into profile table
+    // ✅ Log into user profile table with channel_name
     await conn.query(
-      `INSERT INTO \`${profileTable}\` (order_id, video_link, timestamp) VALUES (?, ?, NOW())`,
-      [order.order_id, order.video_link]
+      `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, timestamp) 
+       VALUES (?, ?, ?, NOW())`,
+      [order.order_id, order.video_link, order.channel_name]
     );
 
     await conn.query("COMMIT");
