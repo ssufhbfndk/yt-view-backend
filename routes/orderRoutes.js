@@ -4,55 +4,46 @@ const db = require('../config/db');  // Assuming db.js is where your MySQL conne
 
 router.post("/fetch-order", async (req, res) => {
   const { username, ip } = req.body;
-  if (!username || !ip)
-    return res.status(400).json({ success: false, message: "Username and IP required" });
-  if (!username.match(/^[a-zA-Z0-9_]+$/))
-    return res.status(400).json({ success: false, message: "Invalid username" });
+  if (!username || !ip) return res.status(400).json({ success: false, message: "Username and IP required" });
+  if (!username.match(/^[a-zA-Z0-9_]+$/)) return res.status(400).json({ success: false, message: "Invalid username" });
 
   const profileTable = `profile_${username}`;
   let conn;
 
   try {
+    // ✅ Get a single connection for the entire request
     conn = await db.getConnection();
 
-    // ✅ Wrap conn.query in a promise
-    const q = (sql, params = []) =>
-      new Promise((resolve, reject) => {
-        conn.query(sql, params, (err, results) => {
-          if (err) return reject(err);
-          resolve(results);
-        });
-      });
+    // ✅ Small wrapper for async queries using this connection
+    const q = (sql, params = []) => new Promise((resolve, reject) => {
+      conn.query(sql, params, (err, results) => (err ? reject(err) : resolve(results)));
+    });
 
     // ✅ Start transaction
-    await new Promise((resolve, reject) =>
-      conn.beginTransaction(err => (err ? reject(err) : resolve()))
-    );
+    await new Promise((resolve, reject) => conn.beginTransaction(err => (err ? reject(err) : resolve())));
 
     // ✅ Fetch one order safely
     const orders = await q(
-      `
-      SELECT o.*
-      FROM orders o
-      LEFT JOIN \`${profileTable}\` p
-        ON o.order_id = p.order_id
-        OR o.video_link = p.video_link
-        OR (o.channel_name IS NOT NULL AND o.channel_name = p.channel_name)
-      LEFT JOIN order_ip_tracking ipt
-        ON o.channel_name = ipt.channel_name AND ipt.ip_address = ?
-      WHERE p.order_id IS NULL
-        AND p.video_link IS NULL
-        AND p.channel_name IS NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM order_ip_tracking i2
-          WHERE i2.order_id = o.order_id AND i2.ip_address = ?
-        )
-        AND (ipt.count IS NULL OR ipt.count < 3)
-        AND o.delay = 1
-      ORDER BY o.id ASC
-      LIMIT 1
-      FOR UPDATE
-      `,
+      `SELECT o.*
+       FROM orders o
+       LEFT JOIN \`${profileTable}\` p
+         ON o.order_id = p.order_id
+         OR o.video_link = p.video_link
+         OR (o.channel_name IS NOT NULL AND o.channel_name = p.channel_name)
+       LEFT JOIN order_ip_tracking ipt
+         ON o.channel_name = ipt.channel_name AND ipt.ip_address = ?
+       WHERE p.order_id IS NULL
+         AND p.video_link IS NULL
+         AND p.channel_name IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM order_ip_tracking i2
+           WHERE i2.order_id = o.order_id AND i2.ip_address = ?
+         )
+         AND (ipt.count IS NULL OR ipt.count < 3)
+         AND o.delay = 1
+       ORDER BY o.id ASC
+       LIMIT 1
+       FOR UPDATE`,
       [ip, ip]
     );
 
@@ -93,15 +84,14 @@ router.post("/fetch-order", async (req, res) => {
       );
     }
 
-    // ✅ Insert into temp_orders only if not exists
+    // ✅ Insert into temp_orders if not exists
     const existingTemp = await q(`SELECT 1 FROM temp_orders WHERE order_id = ?`, [orderId]);
     if (existingTemp.length === 0 && currentRemaining > 0) {
       const delayPool = [45, 60, 75, 90, 120];
       const availableDelays = delayPool.filter(d => d !== Number(order.wait));
-      const delaySeconds =
-        availableDelays.length > 0
-          ? availableDelays[Math.floor(Math.random() * availableDelays.length)]
-          : delayPool[Math.floor(Math.random() * delayPool.length)];
+      const delaySeconds = availableDelays.length > 0
+        ? availableDelays[Math.floor(Math.random() * availableDelays.length)]
+        : delayPool[Math.floor(Math.random() * delayPool.length)];
 
       await q(
         `INSERT INTO temp_orders (order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait, timestamp)
@@ -129,24 +119,20 @@ router.post("/fetch-order", async (req, res) => {
       [orderId, order.video_link, channelName]
     );
 
-    // ✅ Commit
-    await new Promise((resolve, reject) =>
-      conn.commit(err => (err ? reject(err) : resolve()))
-    );
+    // ✅ Commit transaction
+    await new Promise((resolve, reject) => conn.commit(err => (err ? reject(err) : resolve())));
 
     return res.status(200).json({ success: true, order });
+
   } catch (error) {
     console.error("❌ Error in /fetch-order:", error);
-    try {
-      if (conn) await new Promise(resolve => conn.rollback(resolve));
-    } catch {}
+    try { if (conn) await new Promise(resolve => conn.rollback(resolve)); } catch {}
     return res.status(500).json({ success: false, message: "Server Error", error: error.message });
   } finally {
-    try {
-      if (conn) conn.release();
-    } catch {}
+    try { if (conn) conn.release(); } catch {}
   }
 });
+
 
 // API 1 - Receive Data from user and Save to pending_orders
 router.post('/process', async (req, res) => {
