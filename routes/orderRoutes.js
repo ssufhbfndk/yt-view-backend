@@ -4,31 +4,19 @@ const db = require('../config/db');  // Assuming db.js is where your MySQL conne
 
 router.post("/fetch-order", async (req, res) => {
   const { username, ip } = req.body;
-  if (!username || !ip)
-    return res.status(400).json({ success: false, message: "Username and IP required" });
-  if (!/^[a-zA-Z0-9_]+$/.test(username))
-    return res.status(400).json({ success: false, message: "Invalid username" });
+  if (!username || !ip) return res.status(400).json({ success: false, message: "Username and IP required" });
+  if (!username.match(/^[a-zA-Z0-9_]+$/)) return res.status(400).json({ success: false, message: "Invalid username" });
 
   const profileTable = `profile_${username}`;
   let conn;
 
   try {
-    // ✅ Get one connection from the pool
+    // ✅ Single connection for the entire request
     conn = await db.getConnection();
+    await conn.beginTransaction();
 
-    // Wrap queries in Promises
-    const query = (sql, params = []) =>
-      new Promise((resolve, reject) => {
-        conn.query(sql, params, (err, results) => (err ? reject(err) : resolve(results)));
-      });
-
-    // ✅ Start transaction
-    await new Promise((resolve, reject) =>
-      conn.beginTransaction(err => (err ? reject(err) : resolve()))
-    );
-
-    // ✅ Fetch one order
-    const orders = await query(
+    // ✅ Fetch one order safely using FOR UPDATE to lock row
+    const [orders] = await conn.query(
       `
       SELECT o.*
       FROM orders o
@@ -55,7 +43,7 @@ router.post("/fetch-order", async (req, res) => {
     );
 
     if (!orders.length) {
-      await new Promise(resolve => conn.commit(() => resolve()));
+      await conn.commit();
       return res.status(200).json({ success: false, message: "No new orders found" });
     }
 
@@ -64,83 +52,80 @@ router.post("/fetch-order", async (req, res) => {
     const channelName = order.channel_name || null;
     const currentRemaining = Number(order.remaining) || 0;
 
-    // ✅ Check profile table
-    const existingProfile = await query(
+    // ✅ Check if order already in profile
+    const [existingProfile] = await conn.query(
       `SELECT 1 FROM \`${profileTable}\` WHERE order_id = ? OR video_link = ? OR channel_name = ?`,
       [orderId, order.video_link, channelName]
     );
+
     if (existingProfile.length > 0) {
-      await new Promise(resolve => conn.rollback(() => resolve()));
+      await conn.rollback();
       return res.status(409).json({ success: false, message: "Order already processed" });
     }
 
     // ✅ Update IP tracking
-    const existingIP = await query(
+    const [existingIP] = await conn.query(
       `SELECT 1 FROM order_ip_tracking WHERE channel_name <=> ? AND ip_address = ?`,
       [channelName, ip]
     );
 
     if (existingIP.length > 0) {
-      await query(
+      await conn.query(
         `UPDATE order_ip_tracking SET count = count + 1, timestamp = NOW() WHERE channel_name <=> ? AND ip_address = ?`,
         [channelName, ip]
       );
     } else {
-      await query(
-        `INSERT INTO order_ip_tracking (order_id, channel_name, ip_address, count, timestamp)
-         VALUES (?, ?, ?, 1, NOW())`,
+      await conn.query(
+        `INSERT INTO order_ip_tracking (order_id, channel_name, ip_address, count, timestamp) VALUES (?, ?, ?, 1, NOW())`,
         [orderId, channelName, ip]
       );
     }
 
-    // ✅ Insert into temp_orders if not exists
-    const existingTemp = await query(`SELECT 1 FROM temp_orders WHERE order_id = ?`, [orderId]);
+    // ✅ Insert into temp_orders if remaining > 0 and not exists
+    const [existingTemp] = await conn.query(`SELECT 1 FROM temp_orders WHERE order_id = ?`, [orderId]);
     if (existingTemp.length === 0 && currentRemaining > 0) {
       const delayPool = [45, 60, 75, 90, 120];
       const availableDelays = delayPool.filter(d => d !== Number(order.wait));
-      const delaySeconds = availableDelays.length
+      const delaySeconds = availableDelays.length > 0
         ? availableDelays[Math.floor(Math.random() * availableDelays.length)]
         : delayPool[Math.floor(Math.random() * delayPool.length)];
 
-      await query(
-        `INSERT INTO temp_orders
-        (order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
+      await conn.query(
+        `INSERT INTO temp_orders (order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait, timestamp)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
         [orderId, order.video_link, channelName, order.quantity, currentRemaining, order.delay, order.type, order.duration, delaySeconds, delaySeconds]
       );
 
-      await query(`DELETE FROM orders WHERE order_id = ?`, [orderId]);
+      await conn.query(`DELETE FROM orders WHERE order_id = ?`, [orderId]);
     }
 
     // ✅ Complete orders if remaining <= 0
     if (currentRemaining <= 0) {
-      await query(
+      await conn.query(
         `INSERT INTO complete_orders (order_id, video_link, channel_name, quantity, timestamp)
          VALUES (?, ?, ?, ?, NOW())`,
         [orderId, order.video_link, channelName, order.quantity]
       );
-      await query(`DELETE FROM orders WHERE order_id = ?`, [orderId]);
-      await query(`DELETE FROM order_delay WHERE order_id = ?`, [orderId]);
+      await conn.query(`DELETE FROM orders WHERE order_id = ?`, [orderId]);
+      await conn.query(`DELETE FROM order_delay WHERE order_id = ?`, [orderId]);
     }
 
     // ✅ Save to profile table
-    await query(
-      `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, timestamp)
-       VALUES (?, ?, ?, NOW())`,
+    await conn.query(
+      `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, timestamp) VALUES (?, ?, ?, NOW())`,
       [orderId, order.video_link, channelName]
     );
 
     // ✅ Commit transaction
-    await new Promise(resolve => conn.commit(() => resolve()));
-
+    await conn.commit();
     return res.status(200).json({ success: true, order });
 
   } catch (error) {
     console.error("❌ Error in /fetch-order:", error);
-    if (conn) await new Promise(resolve => conn.rollback(() => resolve()));
+    if (conn) await conn.rollback();
     return res.status(500).json({ success: false, message: "Server Error", error: error.message });
   } finally {
-    if (conn) conn.release(); // ✅ Release connection back to pool
+    if (conn) conn.release(); // ✅ Release single connection
   }
 });
 
