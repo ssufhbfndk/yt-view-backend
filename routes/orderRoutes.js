@@ -10,20 +10,22 @@ router.post("/fetch-order", async (req, res) => {
     return res.status(400).json({ success: false, message: "Invalid username" });
 
   const profileTable = `profile_${username}`;
-
   let conn;
+
   try {
-    conn = await db.getConnection(); // ✅ get connection from pool
+    // ✅ Get one connection from the pool
+    conn = await db.getConnection();
 
-    // wrap transaction in a small helper
-    const beginTransaction = () => new Promise((resolve, reject) => conn.beginTransaction(err => err ? reject(err) : resolve()));
-    const commit = () => new Promise((resolve, reject) => conn.commit(err => err ? reject(err) : resolve()));
-    const rollback = () => new Promise(resolve => conn.rollback(() => resolve()));
-    const query = (sql, params = []) => new Promise((resolve, reject) => {
-      conn.query(sql, params, (err, results) => err ? reject(err) : resolve(results));
-    });
+    // Wrap queries in Promises
+    const query = (sql, params = []) =>
+      new Promise((resolve, reject) => {
+        conn.query(sql, params, (err, results) => (err ? reject(err) : resolve(results)));
+      });
 
-    await beginTransaction();
+    // ✅ Start transaction
+    await new Promise((resolve, reject) =>
+      conn.beginTransaction(err => (err ? reject(err) : resolve()))
+    );
 
     // ✅ Fetch one order
     const orders = await query(
@@ -53,7 +55,7 @@ router.post("/fetch-order", async (req, res) => {
     );
 
     if (!orders.length) {
-      await commit();
+      await new Promise(resolve => conn.commit(() => resolve()));
       return res.status(200).json({ success: false, message: "No new orders found" });
     }
 
@@ -62,13 +64,13 @@ router.post("/fetch-order", async (req, res) => {
     const channelName = order.channel_name || null;
     const currentRemaining = Number(order.remaining) || 0;
 
-    // ✅ Skip if already in profile
+    // ✅ Check profile table
     const existingProfile = await query(
       `SELECT 1 FROM \`${profileTable}\` WHERE order_id = ? OR video_link = ? OR channel_name = ?`,
       [orderId, order.video_link, channelName]
     );
     if (existingProfile.length > 0) {
-      await rollback();
+      await new Promise(resolve => conn.rollback(() => resolve()));
       return res.status(409).json({ success: false, message: "Order already processed" });
     }
 
@@ -77,6 +79,7 @@ router.post("/fetch-order", async (req, res) => {
       `SELECT 1 FROM order_ip_tracking WHERE channel_name <=> ? AND ip_address = ?`,
       [channelName, ip]
     );
+
     if (existingIP.length > 0) {
       await query(
         `UPDATE order_ip_tracking SET count = count + 1, timestamp = NOW() WHERE channel_name <=> ? AND ip_address = ?`,
@@ -120,14 +123,16 @@ router.post("/fetch-order", async (req, res) => {
       await query(`DELETE FROM order_delay WHERE order_id = ?`, [orderId]);
     }
 
-    // ✅ Save to profile
+    // ✅ Save to profile table
     await query(
       `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, timestamp)
        VALUES (?, ?, ?, NOW())`,
       [orderId, order.video_link, channelName]
     );
 
-    await commit();
+    // ✅ Commit transaction
+    await new Promise(resolve => conn.commit(() => resolve()));
+
     return res.status(200).json({ success: true, order });
 
   } catch (error) {
