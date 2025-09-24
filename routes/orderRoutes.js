@@ -4,19 +4,27 @@ const db = require('../config/db');  // Assuming db.js is where your MySQL conne
 
 router.post("/fetch-order", async (req, res) => {
   const { username, ip } = req.body;
-  if (!username || !ip) return res.status(400).json({ success: false, message: "Username and IP required" });
-  if (!username.match(/^[a-zA-Z0-9_]+$/)) return res.status(400).json({ success: false, message: "Invalid username" });
+
+  if (!username || !ip)
+    return res.status(400).json({ success: false, message: "Username and IP required" });
+  if (!username.match(/^[a-zA-Z0-9_]+$/))
+    return res.status(400).json({ success: false, message: "Invalid username" });
 
   const profileTable = `profile_${username}`;
   let conn;
 
   try {
-    // ✅ Single connection for the entire request
+    // ✅ Get single connection for the entire request
     conn = await db.getConnection();
+
+    // ✅ Wrap query to use same connection
+    const q = (sql, params = []) => conn.queryAsync(sql, params);
+
+    // ✅ Start transaction
     await conn.beginTransaction();
 
-    // ✅ Fetch one order safely using FOR UPDATE to lock row
-    const [orders] = await conn.query(
+    // ✅ Fetch one order safely
+    const orders = await q(
       `
       SELECT o.*
       FROM orders o
@@ -42,18 +50,18 @@ router.post("/fetch-order", async (req, res) => {
       [ip, ip]
     );
 
-    if (!orders.length) {
+    if (!orders || orders.length === 0) {
       await conn.commit();
       return res.status(200).json({ success: false, message: "No new orders found" });
     }
 
     const order = orders[0];
-    const orderId = Number(order.order_id);
+    const orderId = parseInt(order.order_id, 10);
     const channelName = order.channel_name || null;
-    const currentRemaining = Number(order.remaining) || 0;
+    const currentRemaining = parseInt(order.remaining, 10) || 0;
 
-    // ✅ Check if order already in profile
-    const [existingProfile] = await conn.query(
+    // ✅ Skip if already in profile
+    const existingProfile = await q(
       `SELECT 1 FROM \`${profileTable}\` WHERE order_id = ? OR video_link = ? OR channel_name = ?`,
       [orderId, order.video_link, channelName]
     );
@@ -64,68 +72,76 @@ router.post("/fetch-order", async (req, res) => {
     }
 
     // ✅ Update IP tracking
-    const [existingIP] = await conn.query(
+    const existingIP = await q(
       `SELECT 1 FROM order_ip_tracking WHERE channel_name <=> ? AND ip_address = ?`,
       [channelName, ip]
     );
 
     if (existingIP.length > 0) {
-      await conn.query(
+      await q(
         `UPDATE order_ip_tracking SET count = count + 1, timestamp = NOW() WHERE channel_name <=> ? AND ip_address = ?`,
         [channelName, ip]
       );
     } else {
-      await conn.query(
-        `INSERT INTO order_ip_tracking (order_id, channel_name, ip_address, count, timestamp) VALUES (?, ?, ?, 1, NOW())`,
+      await q(
+        `INSERT INTO order_ip_tracking (order_id, channel_name, ip_address, count, timestamp)
+         VALUES (?, ?, ?, 1, NOW())`,
         [orderId, channelName, ip]
       );
     }
 
-    // ✅ Insert into temp_orders if remaining > 0 and not exists
-    const [existingTemp] = await conn.query(`SELECT 1 FROM temp_orders WHERE order_id = ?`, [orderId]);
+    // ✅ Insert into temp_orders if not exists
+    const existingTemp = await q(`SELECT 1 FROM temp_orders WHERE order_id = ?`, [orderId]);
     if (existingTemp.length === 0 && currentRemaining > 0) {
       const delayPool = [45, 60, 75, 90, 120];
       const availableDelays = delayPool.filter(d => d !== Number(order.wait));
-      const delaySeconds = availableDelays.length > 0
-        ? availableDelays[Math.floor(Math.random() * availableDelays.length)]
-        : delayPool[Math.floor(Math.random() * delayPool.length)];
+      const delaySeconds =
+        availableDelays.length > 0
+          ? availableDelays[Math.floor(Math.random() * availableDelays.length)]
+          : delayPool[Math.floor(Math.random() * delayPool.length)];
 
-      await conn.query(
-        `INSERT INTO temp_orders (order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait, timestamp)
+      await q(
+        `INSERT INTO temp_orders
+        (order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait, timestamp)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
         [orderId, order.video_link, channelName, order.quantity, currentRemaining, order.delay, order.type, order.duration, delaySeconds, delaySeconds]
       );
 
-      await conn.query(`DELETE FROM orders WHERE order_id = ?`, [orderId]);
+      await q(`DELETE FROM orders WHERE order_id = ?`, [orderId]);
     }
 
     // ✅ Complete orders if remaining <= 0
     if (currentRemaining <= 0) {
-      await conn.query(
+      await q(
         `INSERT INTO complete_orders (order_id, video_link, channel_name, quantity, timestamp)
          VALUES (?, ?, ?, ?, NOW())`,
         [orderId, order.video_link, channelName, order.quantity]
       );
-      await conn.query(`DELETE FROM orders WHERE order_id = ?`, [orderId]);
-      await conn.query(`DELETE FROM order_delay WHERE order_id = ?`, [orderId]);
+      await q(`DELETE FROM orders WHERE order_id = ?`, [orderId]);
+      await q(`DELETE FROM order_delay WHERE order_id = ?`, [orderId]);
     }
 
     // ✅ Save to profile table
-    await conn.query(
-      `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, timestamp) VALUES (?, ?, ?, NOW())`,
+    await q(
+      `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, timestamp)
+       VALUES (?, ?, ?, NOW())`,
       [orderId, order.video_link, channelName]
     );
 
     // ✅ Commit transaction
     await conn.commit();
-    return res.status(200).json({ success: true, order });
 
+    return res.status(200).json({ success: true, order });
   } catch (error) {
     console.error("❌ Error in /fetch-order:", error);
-    if (conn) await conn.rollback();
+    try {
+      if (conn) await conn.rollback();
+    } catch {}
     return res.status(500).json({ success: false, message: "Server Error", error: error.message });
   } finally {
-    if (conn) conn.release(); // ✅ Release single connection
+    try {
+      if (conn) conn.release(); // ✅ Always release connection
+    } catch {}
   }
 });
 
