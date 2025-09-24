@@ -4,7 +4,6 @@ const db = require('../config/db');  // Assuming db.js is where your MySQL conne
 
 router.post("/fetch-order", async (req, res) => {
   const { username, ip } = req.body;
-
   if (!username || !ip)
     return res.status(400).json({ success: false, message: "Username and IP required" });
   if (!username.match(/^[a-zA-Z0-9_]+$/))
@@ -14,14 +13,21 @@ router.post("/fetch-order", async (req, res) => {
   let conn;
 
   try {
-    // ✅ Get single connection for the entire request
     conn = await db.getConnection();
 
-    // ✅ Wrap query to use same connection
-    const q = (sql, params = []) => conn.queryAsync(sql, params);
+    // ✅ Wrap conn.query in a promise
+    const q = (sql, params = []) =>
+      new Promise((resolve, reject) => {
+        conn.query(sql, params, (err, results) => {
+          if (err) return reject(err);
+          resolve(results);
+        });
+      });
 
     // ✅ Start transaction
-    await conn.beginTransaction();
+    await new Promise((resolve, reject) =>
+      conn.beginTransaction(err => (err ? reject(err) : resolve()))
+    );
 
     // ✅ Fetch one order safely
     const orders = await q(
@@ -51,7 +57,7 @@ router.post("/fetch-order", async (req, res) => {
     );
 
     if (!orders || orders.length === 0) {
-      await conn.commit();
+      await new Promise(resolve => conn.commit(resolve));
       return res.status(200).json({ success: false, message: "No new orders found" });
     }
 
@@ -65,9 +71,8 @@ router.post("/fetch-order", async (req, res) => {
       `SELECT 1 FROM \`${profileTable}\` WHERE order_id = ? OR video_link = ? OR channel_name = ?`,
       [orderId, order.video_link, channelName]
     );
-
     if (existingProfile.length > 0) {
-      await conn.rollback();
+      await new Promise(resolve => conn.rollback(resolve));
       return res.status(409).json({ success: false, message: "Order already processed" });
     }
 
@@ -76,7 +81,6 @@ router.post("/fetch-order", async (req, res) => {
       `SELECT 1 FROM order_ip_tracking WHERE channel_name <=> ? AND ip_address = ?`,
       [channelName, ip]
     );
-
     if (existingIP.length > 0) {
       await q(
         `UPDATE order_ip_tracking SET count = count + 1, timestamp = NOW() WHERE channel_name <=> ? AND ip_address = ?`,
@@ -84,13 +88,12 @@ router.post("/fetch-order", async (req, res) => {
       );
     } else {
       await q(
-        `INSERT INTO order_ip_tracking (order_id, channel_name, ip_address, count, timestamp)
-         VALUES (?, ?, ?, 1, NOW())`,
+        `INSERT INTO order_ip_tracking (order_id, channel_name, ip_address, count, timestamp) VALUES (?, ?, ?, 1, NOW())`,
         [orderId, channelName, ip]
       );
     }
 
-    // ✅ Insert into temp_orders if not exists
+    // ✅ Insert into temp_orders only if not exists
     const existingTemp = await q(`SELECT 1 FROM temp_orders WHERE order_id = ?`, [orderId]);
     if (existingTemp.length === 0 && currentRemaining > 0) {
       const delayPool = [45, 60, 75, 90, 120];
@@ -101,8 +104,7 @@ router.post("/fetch-order", async (req, res) => {
           : delayPool[Math.floor(Math.random() * delayPool.length)];
 
       await q(
-        `INSERT INTO temp_orders
-        (order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait, timestamp)
+        `INSERT INTO temp_orders (order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait, timestamp)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
         [orderId, order.video_link, channelName, order.quantity, currentRemaining, order.delay, order.type, order.duration, delaySeconds, delaySeconds]
       );
@@ -123,28 +125,28 @@ router.post("/fetch-order", async (req, res) => {
 
     // ✅ Save to profile table
     await q(
-      `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, timestamp)
-       VALUES (?, ?, ?, NOW())`,
+      `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, timestamp) VALUES (?, ?, ?, NOW())`,
       [orderId, order.video_link, channelName]
     );
 
-    // ✅ Commit transaction
-    await conn.commit();
+    // ✅ Commit
+    await new Promise((resolve, reject) =>
+      conn.commit(err => (err ? reject(err) : resolve()))
+    );
 
     return res.status(200).json({ success: true, order });
   } catch (error) {
     console.error("❌ Error in /fetch-order:", error);
     try {
-      if (conn) await conn.rollback();
+      if (conn) await new Promise(resolve => conn.rollback(resolve));
     } catch {}
     return res.status(500).json({ success: false, message: "Server Error", error: error.message });
   } finally {
     try {
-      if (conn) conn.release(); // ✅ Always release connection
+      if (conn) conn.release();
     } catch {}
   }
 });
-
 
 // API 1 - Receive Data from user and Save to pending_orders
 router.post('/process', async (req, res) => {
