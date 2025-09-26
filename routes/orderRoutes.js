@@ -33,20 +33,41 @@ router.post("/fetch-order", async (req, res) => {
     ON o.order_id = p.order_id 
     OR o.video_link = p.video_link
     OR o.channel_name = p.channel_name
-  LEFT JOIN order_ip_tracking ipt 
-    ON o.channel_name = ipt.channel_name
-    AND ipt.ip_address = ?
+
+  -- Check if this exact order_id was already picked by this IP
+  LEFT JOIN order_ip_tracking ipt_order
+    ON o.order_id = ipt_order.order_id
+    AND ipt_order.ip_address = ?
+
+  -- Count how many times this channel was picked by this IP
+  LEFT JOIN (
+      SELECT channel_name, ip_address, COUNT(*) AS cnt
+      FROM order_ip_tracking
+      WHERE ip_address = ?
+      GROUP BY channel_name, ip_address
+  ) ipt_channel
+    ON o.channel_name = ipt_channel.channel_name
+    AND ipt_channel.ip_address = ?
+
   WHERE p.order_id IS NULL 
     AND p.video_link IS NULL
-    AND p.channel_name IS NULL           -- duplicate channel skip
-    AND (ipt.count IS NULL OR ipt.count < 2)   -- max 2 per IP per channel
-    AND o.delay = true
+    AND p.channel_name IS NULL
+
+    -- Skip if the same order_id was already picked by this IP
+    AND ipt_order.order_id IS NULL
+
+    -- Allow max 2 times per channel per IP
+    AND (ipt_channel.cnt IS NULL OR ipt_channel.cnt < 2)
+
+    AND o.delay = TRUE
+
   ORDER BY RAND()
   LIMIT 1
   FOR UPDATE
   `,
-  [ip]
+  [ip, ip, ip] // pass IP three times
 );
+
 
     if (orders.length === 0) {
       await conn.query("COMMIT");
