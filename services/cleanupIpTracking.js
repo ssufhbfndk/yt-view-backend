@@ -5,14 +5,19 @@ const cleanupOldIpTracking = async () => {
     // Abhi ka exact time
     const now = new Date();
 
-    // Delete sirf un records ko jo 24 ghante se purane hain
+    // ✅ Delete records based on type:
+    //  - 'short' → older than 2 hours
+    //  - others  → older than 24 hours
     const result = await db.queryAsync(`
       DELETE FROM order_ip_tracking
-      WHERE timestamp < (NOW() - INTERVAL 24 HOUR)
+      WHERE 
+        (type = 'short' AND timestamp < (NOW() - INTERVAL 2 HOUR))
+        OR
+        (type <> 'short' AND timestamp < (NOW() - INTERVAL 24 HOUR))
     `);
 
     console.log(
-      `✅ Deleted ${result.affectedRows} IP tracking records older than 24 hours (till ${now.toISOString()}).`
+      `✅ Deleted ${result.affectedRows} IP tracking records (short >2h, others >24h) — till ${now.toISOString()}.`
     );
   } catch (error) {
     console.error("❌ Error cleaning up order_ip_tracking:", error);

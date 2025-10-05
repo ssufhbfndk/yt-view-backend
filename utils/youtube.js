@@ -40,6 +40,7 @@ const getYouTubeVideoId = (url) => {
 };
 
 // Helper: Validate with YouTube API
+// Helper: Validate with YouTube API
 const isValidYouTubeVideo = async (videoId) => {
   const url = `https://www.googleapis.com/youtube/v3/videos?part=status,snippet,contentDetails&id=${videoId}&key=${YOUTUBE_API_KEY}`;
 
@@ -58,8 +59,8 @@ const isValidYouTubeVideo = async (videoId) => {
       return { valid: false, reason: `Video upload status: ${status.uploadStatus}` };
     }
 
-    // ❌ Privacy check
-    if (status.privacyStatus !== 'public') {
+    // ✅ Allow both 'public' and 'unlisted'
+    if (status.privacyStatus !== 'public' && status.privacyStatus !== 'unlisted') {
       return { valid: false, reason: `Video privacy: ${status.privacyStatus}` };
     }
 
@@ -85,6 +86,7 @@ const isValidYouTubeVideo = async (videoId) => {
     return { valid: false, reason: err.response?.data?.error?.message || err.message };
   }
 };
+
 
 const getChannelName = async (videoId) => {
   const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${YOUTUBE_API_KEY}`;
