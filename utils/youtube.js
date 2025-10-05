@@ -74,10 +74,6 @@ const isValidYouTubeVideo = async (videoId) => {
       return { valid: false, reason: 'Video is age-restricted, not allowed' };
     }
 
-    // ❌ Region restriction check
-    if (contentDetails?.regionRestriction) {
-      return { valid: false, reason: 'Video has region restrictions, not allowed' };
-    }
 
     // ✅ All passed
     return { valid: true };
