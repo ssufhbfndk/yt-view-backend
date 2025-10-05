@@ -113,7 +113,7 @@ router.post("/fetch-order", async (req, res) => {
       await conn.query(`DELETE FROM order_delay WHERE order_id = ?`, [order.order_id]);
     } else {
       // Delay logic for temp_orders
-      const delayPool = [45, 60, 75, 90, 120];
+      const delayPool = [45, 60, 75, 90, 120,150,180,210];
       const availableDelays = delayPool.filter(d => d !== order.wait);
       const delaySeconds = (availableDelays.length > 0)
         ? availableDelays[Math.floor(Math.random() * availableDelays.length)]
