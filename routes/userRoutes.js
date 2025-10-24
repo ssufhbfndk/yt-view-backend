@@ -56,13 +56,16 @@ router.post("/add-user", async (req, res) => {
 
     // ✅ Create profile_[username] table safely
     const profileTable = `profile_${username}`;
-    const createProfileTableSQL = `
-      CREATE TABLE IF NOT EXISTS \`${profileTable}\` (
-        order_id INT PRIMARY KEY,
-        video_link VARCHAR(500),
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `;
+   const createProfileTableSQL = `
+  CREATE TABLE IF NOT EXISTS \`${profileTable}\` (
+    order_id INT PRIMARY KEY,
+    video_link VARCHAR(500),
+    channel_name VARCHAR(255),
+    type VARCHAR(50) DEFAULT 'short',
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )
+`;
+
 
     await db.queryAsync(createProfileTableSQL);
 

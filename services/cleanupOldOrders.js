@@ -11,7 +11,7 @@ const deleteOldOrders = async () => {
       return;
     }
 
-    console.log("🧹 Deleting orders older than 24 hours...");
+    console.log("🧹 Deleting old orders based on type...");
 
     for (const user of users) {
       const { username } = user;
@@ -21,22 +21,22 @@ const deleteOldOrders = async () => {
       const checkTableQuery = `SHOW TABLES LIKE ?`;
       const tableExists = await db.queryAsync(checkTableQuery, [profileTable]);
 
-      if (tableExists.length === 0) {
-        continue;
-      }
+      if (tableExists.length === 0) continue;
 
-      // Delete rows older than 24 hours
+      // Delete logic based on 'type'
       const deleteQuery = `
         DELETE FROM ?? 
-        WHERE timestamp < (NOW() - INTERVAL 24 HOUR)
+        WHERE 
+          (type = 'short' AND timestamp < (NOW() - INTERVAL 12 HOUR))
+          OR 
+          (type = 'long' AND timestamp < (NOW() - INTERVAL 48 HOUR))
       `;
 
       const result = await db.queryAsync(deleteQuery, [profileTable]);
-
-      console.log(`✅ Deleted ${result.affectedRows} old orders from ${profileTable}`);
+      console.log(`✅ Deleted ${result.affectedRows} expired rows from ${profileTable}`);
     }
 
-    console.log("✅ Cleanup job completed!");
+    console.log("✅ Cleanup job completed successfully!");
   } catch (error) {
     console.error("❌ Error deleting old orders:", error);
   }

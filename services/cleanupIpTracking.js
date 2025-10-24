@@ -11,7 +11,7 @@ const cleanupOldIpTracking = async () => {
     const result = await db.queryAsync(`
       DELETE FROM order_ip_tracking
       WHERE 
-        (type = 'short' AND timestamp < (NOW() - INTERVAL 2 HOUR))
+        (type = 'short' AND timestamp < (NOW() - INTERVAL 1 HOUR))
         OR
         (type <> 'short' AND timestamp < (NOW() - INTERVAL 24 HOUR))
     `);

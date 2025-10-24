@@ -52,7 +52,7 @@ router.post("/fetch-order", async (req, res) => {
         -- Skip if the same order_id was already picked by this IP
         AND ipt_order.order_id IS NULL
         -- Allow max 2 times per channel per IP
-        AND (ipt_channel.cnt IS NULL OR ipt_channel.cnt < 2)
+        AND (ipt_channel.cnt IS NULL OR ipt_channel.cnt < 5)
         AND o.delay = TRUE
       ORDER BY RAND()
       LIMIT 1
@@ -113,7 +113,9 @@ router.post("/fetch-order", async (req, res) => {
       await conn.query(`DELETE FROM order_delay WHERE order_id = ?`, [order.order_id]);
     } else {
       // Delay logic for temp_orders
-      const delayPool = [45, 60, 75, 90, 120,150,180,210];
+      const delayPool = [5,15,30,45, 60, 75, 90, 120,150,180,210,240,270,300
+
+      ];
       const availableDelays = delayPool.filter(d => d !== order.wait);
       const delaySeconds = (availableDelays.length > 0)
         ? availableDelays[Math.floor(Math.random() * availableDelays.length)]
@@ -142,10 +144,11 @@ router.post("/fetch-order", async (req, res) => {
 
     // ✅ Log into user profile table with channel_name
     await conn.query(
-      `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, timestamp)
-        VALUES (?, ?, ?, NOW())`,
-      [order.order_id, order.video_link, order.channel_name]
-    );
+  `INSERT INTO \`${profileTable}\` (order_id, video_link, channel_name, type, timestamp)
+    VALUES (?, ?, ?, ?, NOW())`,
+  [order.order_id, order.video_link, order.channel_name, order.type]
+);
+
 
     await conn.query("COMMIT");
 
