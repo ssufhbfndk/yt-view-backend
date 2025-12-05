@@ -27,9 +27,9 @@ const deleteOldOrders = async () => {
       const deleteQuery = `
         DELETE FROM ?? 
         WHERE 
-          (type = 'short' AND timestamp < (NOW() - INTERVAL 12 HOUR))
+          (type = 'short' AND timestamp < (NOW() - INTERVAL 24 HOUR))
           OR 
-          (type = 'long' AND timestamp < (NOW() - INTERVAL 48 HOUR))
+          (type = 'long' AND timestamp < (NOW() - INTERVAL 24 HOUR))
       `;
 
       const result = await db.queryAsync(deleteQuery, [profileTable]);
