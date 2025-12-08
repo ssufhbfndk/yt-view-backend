@@ -103,7 +103,6 @@ const processPendingOrders = async () => {
         randomDelaySeconds = Math.floor(Math.random() * (70 * 60 - 50 * 60 + 1)) + 50 * 60;
       }
 
-      const futureTimestamp = new Date(Date.now() + randomDelaySeconds * 1000);
 
       const delayPool = [45, 60, 75, 90, 120];
       const availableDelays = delayPool.filter(d => d !== order.wait);
@@ -117,15 +116,13 @@ const processPendingOrders = async () => {
         VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, NOW())
       `, [order_id, video_link, quantity, remaining / videoInfo.multiplier, finalDuration, videoInfo.type, wait, channelName]);
 
-      await query2(`
-        INSERT INTO order_delay 
-        (order_id, delay, type, timestamp)
-        VALUES (?, 1, ?, ?)
-        ON DUPLICATE KEY UPDATE 
-          delay = 1,
-          type = VALUES(type),
-          timestamp = VALUES(timestamp)
-      `, [order_id, videoInfo.type, futureTimestamp]);
+    // NEW LOGIC → If type is NOT short, insert into skip_point
+if (videoInfo.type !== "short") {
+  await query2(`
+    INSERT INTO skip_point (order_id, video_type)
+    VALUES (?, ?)
+  `, [order_id, videoInfo.type]);
+}
 
       await commit2();
       conn.release();

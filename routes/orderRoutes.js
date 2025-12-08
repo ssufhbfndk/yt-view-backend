@@ -120,14 +120,25 @@ router.post("/fetch-order", async (req, res) => {
 
     // ✅ Process order
     if (currentRemaining <= 0) {
-      // Move to complete_orders
-      await conn.query(
-        `INSERT INTO complete_orders (order_id, video_link, quantity, channel_name, timestamp)
-          VALUES (?, ?, ?, ?, NOW())`,
-        [order.order_id, order.video_link, order.quantity, order.channel_name]
-      );
-      await conn.query(`DELETE FROM orders WHERE order_id = ?`, [order.order_id]);
-      await conn.query(`DELETE FROM order_delay WHERE order_id = ?`, [order.order_id]);
+     // Move to complete_orders
+              await conn.query(
+                `INSERT INTO complete_orders (order_id, video_link, quantity, channel_name, timestamp)
+                VALUES (?, ?, ?, ?, NOW())`,
+                [order.order_id, order.video_link, order.quantity, order.channel_name]
+              );
+
+              // Always delete from orders
+              await conn.query(
+                `DELETE FROM orders WHERE order_id = ?`,
+                [order.order_id]
+              );
+
+              // Check if exists in skip_point and delete
+              await conn.query(
+                `DELETE FROM skip_point WHERE order_id = ?`,
+                [order.order_id]
+              );
+
     } else {
       // Delay logic for temp_orders
       const delayPool = [5,15,30,45, 60, 75, 90, 120,150,180,210,240,270,300
