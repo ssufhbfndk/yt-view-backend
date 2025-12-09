@@ -147,13 +147,13 @@ const getVideoTypeAndDuration = async (videoId, url, passedDuration) => {
 
     if (type === 'short') {
       // ✅ Your simplified short logic
-      if (durationSeconds <= 61) {
-        multiplier = 3;
+      if (durationSeconds <= 121) {
+        multiplier = 4;
         finalDuration = (durationSeconds * multiplier) + 15;
     
-      } else if (durationSeconds > 61) {
+      } else if (durationSeconds > 122) {
         multiplier = 1;
-        finalDuration = 25;
+        finalDuration = 40;
       }
     } else {
       // ✅ For long/live videos — keep old logic
