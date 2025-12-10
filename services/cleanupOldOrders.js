@@ -27,7 +27,7 @@ const deleteOldOrders = async () => {
       const deleteQuery = `
         DELETE FROM ?? 
         WHERE 
-          (type = 'short' AND timestamp < (NOW() - INTERVAL 16 HOUR))
+          (type = 'short' AND timestamp < (NOW() - INTERVAL 20 HOUR))
           OR 
           (type = 'long' AND timestamp < (NOW() - INTERVAL 24 HOUR))
       `;
