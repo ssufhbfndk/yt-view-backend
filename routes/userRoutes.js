@@ -172,7 +172,6 @@ router.get("/num-views/:username", async (req, res) => {
 router.post("/increment-views", async (req, res) => {
   const { username, points, order_id } = req.body;
 
-  // Basic validation
   if (!username || points === undefined || !order_id) {
     return res.status(400).json({
       success: false,
@@ -194,17 +193,29 @@ router.post("/increment-views", async (req, res) => {
       conn.beginTransaction((err) => (err ? reject(err) : resolve()))
     );
 
-    // ⭐ NEW STEP → Check skip_point BEFORE increment
+    // ⭐ STEP 1 — CHECK SKIP POINT
     const skipCheck = await db.queryAsync(
       "SELECT id FROM skip_point WHERE order_id = ? LIMIT 1",
       [order_id]
     );
 
     if (skipCheck.length > 0) {
-      // Order is skipped → NO increment
-      
-      // STILL fetch current num_views to return
-      const userCheck = await db.queryAsync(
+
+      // ⭐ STILL DECREMENT remaining (IMPORTANT)
+      const ordersResult = await db.queryAsync(
+        "UPDATE orders SET remaining = remaining - 1 WHERE order_id = ? AND remaining > 0",
+        [order_id]
+      );
+
+      if (ordersResult.affectedRows === 0) {
+        await db.queryAsync(
+          "UPDATE temp_orders SET remaining = remaining - 1 WHERE order_id = ? AND remaining > 0",
+          [order_id]
+        );
+      }
+
+      // Fetch num_views (NO increment)
+      const userData = await db.queryAsync(
         "SELECT num_views FROM user WHERE username = ?",
         [username]
       );
@@ -216,14 +227,12 @@ router.post("/increment-views", async (req, res) => {
 
       return res.json({
         success: true,
-        num_views: userCheck.length ? userCheck[0].num_views : 0,
-        message: "0 coin updated because this order is marked as skipped",
+        num_views: userData.length ? userData[0].num_views : 0,
+        message: "Order skipped → 0 coins added, remaining decremented.",
       });
     }
 
-    // ⭐ ORIGINAL LOGIC CONTINUES (if NOT skipped)
-
-    // Step 1: Increment user num_views
+    // ⭐ STEP 2 — NORMAL LOGIC (NOT SKIPPED)
     const updateResult = await db.queryAsync(
       "UPDATE user SET num_views = num_views + ? WHERE username = ?",
       [points, username]
@@ -237,35 +246,25 @@ router.post("/increment-views", async (req, res) => {
       });
     }
 
-    // Step 2: Fetch updated num_views
+    // Get updated views
     const users = await db.queryAsync(
       "SELECT num_views FROM user WHERE username = ?",
       [username]
     );
 
-    if (users.length === 0) {
-      conn.release();
-      return res.status(404).json({
-        success: false,
-        message: "User not found after update",
-      });
-    }
-
-    // Step 3: Decrement remaining in orders first
+    // ⭐ STEP 3 — NORMAL REMAINING DECREMENT
     const ordersResult = await db.queryAsync(
-      "UPDATE orders SET remaining = remaining - 1  WHERE order_id = ? AND remaining > 0",
+      "UPDATE orders SET remaining = remaining - 1 WHERE order_id = ? AND remaining > 0",
       [order_id]
     );
 
     if (ordersResult.affectedRows === 0) {
-      // try temp_orders
       await db.queryAsync(
-        "UPDATE temp_orders SET remaining = remaining - 1  WHERE order_id = ? AND remaining > 0",
+        "UPDATE temp_orders SET remaining = remaining - 1 WHERE order_id = ? AND remaining > 0",
         [order_id]
       );
     }
 
-    // Commit
     await new Promise((resolve, reject) =>
       conn.commit((err) => (err ? reject(err) : resolve()))
     );
