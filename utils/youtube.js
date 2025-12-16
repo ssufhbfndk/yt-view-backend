@@ -145,30 +145,41 @@ const getVideoTypeAndDuration = async (videoId, url, passedDuration) => {
     let multiplier = 1;
     let finalDuration = durationSeconds;
 
-    if (type === 'short') {
-      // ✅ Your simplified short logic
-      if (durationSeconds <= 121) {
-        multiplier = 4;
-        finalDuration = (durationSeconds * multiplier) + 15;
-    
-      } else if (durationSeconds > 122) {
-        multiplier = 1;
-        finalDuration = 40;
-      }
+   if (type === 'short') {
+  // 🎯 SHORT VIDEO RANDOM DURATION LOGIC
+
+  const minDuration = 2;
+
+  // max duration: 30 ya actual duration (jo choti ho)
+  const maxDuration = Math.min(30, durationSeconds);
+
+  // Safety check
+  if (maxDuration <= minDuration) {
+    finalDuration = maxDuration;
+  } else {
+    finalDuration =
+      Math.floor(Math.random() * (maxDuration - minDuration + 1)) + minDuration;
+  }
+
+  multiplier = 1; // short ke liye multiplier ki zarurat nahi
+
+} else {
+  // ✅ LONG / LIVE VIDEOS — OLD LOGIC SAME
+  const pendingValue = parseInt(passedDuration || 0, 10);
+
+  if (pendingValue > 0) {
+    if (durationSeconds > pendingValue) {
+      finalDuration = pendingValue;
     } else {
-      // ✅ For long/live videos — keep old logic
-      const pendingValue = parseInt(passedDuration || 0, 10);
-      if (pendingValue > 0) {
-        if (durationSeconds > pendingValue) {
-          finalDuration = pendingValue;
-        } else {
-          finalDuration = durationSeconds;
-        }
-      } else {
-        finalDuration = durationSeconds;
-      }
-      multiplier = 1;
+      finalDuration = durationSeconds;
     }
+  } else {
+    finalDuration = durationSeconds;
+  }
+
+  multiplier = 1;
+}
+
 
     return {
       type,
