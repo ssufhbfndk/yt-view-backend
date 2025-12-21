@@ -10,6 +10,9 @@ const processTempOrders = async () => {
     connection = await db.getConnection();
     const conn = connection.promise();
 
+    // ✅ Reduce locking (IMPORTANT)
+    await conn.query('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+
     // ✅ Start transaction
     await conn.query('START TRANSACTION');
 
@@ -28,7 +31,6 @@ const processTempOrders = async () => {
       )
       ORDER BY timestamp ASC
       LIMIT 500
-      FOR UPDATE
     `);
 
     if (tempOrders.length === 0) {
@@ -38,12 +40,26 @@ const processTempOrders = async () => {
     }
 
     for (const tempOrder of tempOrders) {
-      const { order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait } = tempOrder;
+      const {
+        order_id,
+        video_link,
+        channel_name,
+        quantity,
+        remaining,
+        delay,
+        type,
+        duration,
+        wait
+      } = tempOrder;
 
       if (remaining > 0) {
         // ✅ Reinsert into orders table
         await conn.query(`
-          INSERT INTO orders (order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait)
+          INSERT INTO orders (
+            order_id, video_link, channel_name,
+            quantity, remaining, delay,
+            type, duration, wait
+          )
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON DUPLICATE KEY UPDATE
             remaining = VALUES(remaining),
@@ -52,17 +68,37 @@ const processTempOrders = async () => {
             duration = VALUES(duration),
             wait = VALUES(wait),
             channel_name = VALUES(channel_name)
-        `, [order_id, video_link, channel_name, quantity, remaining, delay, type, duration, wait]);
+        `, [
+          order_id,
+          video_link,
+          channel_name,
+          quantity,
+          remaining,
+          delay,
+          type,
+          duration,
+          wait
+        ]);
       } else {
-        // ✅ Move to complete_orders if remaining <= 0
+        // ✅ Move to complete_orders
         await conn.query(`
-          INSERT INTO complete_orders (order_id, video_link, channel_name, quantity, timestamp)
+          INSERT INTO complete_orders (
+            order_id, video_link, channel_name, quantity, timestamp
+          )
           VALUES (?, ?, ?, ?, NOW())
-        `, [order_id, video_link, channel_name, quantity]);
+        `, [
+          order_id,
+          video_link,
+          channel_name,
+          quantity
+        ]);
       }
 
       // ✅ Remove from temp_orders
-      await conn.query(`DELETE FROM temp_orders WHERE order_id = ?`, [order_id]);
+      await conn.query(
+        `DELETE FROM temp_orders WHERE order_id = ?`,
+        [order_id]
+      );
     }
 
     await conn.query('COMMIT');
@@ -71,7 +107,9 @@ const processTempOrders = async () => {
   } catch (error) {
     console.error("❌ Error processing temp_orders:", error);
     try {
-      if (connection) await connection.promise().query('ROLLBACK');
+      if (connection) {
+        await connection.promise().query('ROLLBACK');
+      }
     } catch (rbErr) {
       console.error("❌ Rollback failed:", rbErr);
     }
