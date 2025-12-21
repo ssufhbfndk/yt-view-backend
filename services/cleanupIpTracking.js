@@ -13,7 +13,7 @@ const cleanupOldIpTracking = async () => {
       WHERE 
         (type = 'short' AND timestamp < (NOW() - INTERVAL 1 HOUR))
         OR
-        (type <> 'short' AND timestamp < (NOW() - INTERVAL 24 HOUR))
+        (type <> 'short' AND timestamp < (NOW() - INTERVAL 2 HOUR))
     `);
 
     console.log(
