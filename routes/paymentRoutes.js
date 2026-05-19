@@ -1,0 +1,291 @@
+const express = require("express");
+const router = express.Router();
+
+const { queryAsync } = require("../config/db");
+
+// ================================
+// GET TRANSACTIONS VIEW API
+// ================================
+router.get("/transactions-view", async (req, res) => {
+  try {
+
+    let { page, limit, status } = req.query;
+
+    if (!page || !limit) {
+      return res.status(400).json({
+        success: false,
+        message: "page and limit required"
+      });
+    }
+
+    page = parseInt(page);
+    limit = parseInt(limit);
+
+    const offset = (page - 1) * limit;
+
+    let where = [];
+    let params = [];
+
+    // ================================
+    // STATUS FILTER (IMPORTANT FIX)
+    // ================================
+    if (status !== undefined && status !== "all") {
+
+      // frontend string safety fix
+      const statusMap = {
+        pending: 0,
+        completed: 1,
+        rejected: 2,
+        0: 0,
+        1: 1,
+        2: 2
+      };
+
+      const statusValue = statusMap[status];
+
+      if (statusValue !== undefined) {
+        where.push("status = ?");
+        params.push(statusValue);
+      }
+    }
+
+    const whereSQL = where.length
+      ? "WHERE " + where.join(" AND ")
+      : "";
+
+    const sql = `
+      SELECT 
+        id ,
+        username,
+        bank_name,
+        bank_account_number,
+        account_holder_name,
+        coins,
+        amount_pkr,
+        amount_usd,
+        status,
+        invoice_num,
+        created_at,
+        status_updated_at
+      FROM payment_history
+      ${whereSQL}
+      ORDER BY id DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    const transactions = await queryAsync(sql, [
+      ...params,
+      limit,
+      offset
+    ]);
+
+    const countSQL = `
+      SELECT COUNT(*) as total
+      FROM payment_history
+      ${whereSQL}
+    `;
+
+    const countResult = await queryAsync(countSQL, params);
+
+    return res.json({
+      success: true,
+      transactions,
+      total: countResult?.[0]?.total || 0,
+      totalPages: Math.ceil((countResult?.[0]?.total || 0) / limit),
+      page
+    });
+
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+// ================================
+// SEARCH TRANSACTIONS
+// ================================
+router.get("/transactions-search", async (req, res) => {
+  try {
+
+    let { page, limit, search, status } = req.query;
+
+    page = parseInt(page);
+    limit = parseInt(limit);
+    search = search ? String(search).trim() : "";
+
+    const offset = (page - 1) * limit;
+
+    let where = [];
+    let params = [];
+
+    // ================================
+    // SEARCH
+    // ================================
+    if (search) {
+      where.push(`(
+        username LIKE ?
+        OR CAST(id AS CHAR) LIKE ?
+      )`);
+
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // ================================
+    // STATUS FIX (SAME LOGIC)
+    // ================================
+    if (status !== undefined && status !== "all") {
+
+      const statusMap = {
+        pending: 0,
+        completed: 1,
+        rejected: 2,
+        0: 0,
+        1: 1,
+        2: 2
+      };
+
+      const statusValue = statusMap[status];
+
+      if (statusValue !== undefined) {
+        where.push("status = ?");
+        params.push(statusValue);
+      }
+    }
+
+    const whereSQL = where.length
+      ? "WHERE " + where.join(" AND ")
+      : "";
+
+    const sql = `
+      SELECT 
+        id,
+        username,
+        bank_name,
+        bank_account_number,
+        account_holder_name,
+        coins,
+        amount_pkr,
+        amount_usd,
+        status,
+        invoice_num,
+        created_at,
+        status_updated_at
+      FROM payment_history
+      ${whereSQL}
+      ORDER BY id DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    const transactions = await queryAsync(sql, [
+      ...params,
+      limit,
+      offset
+    ]);
+
+    const countSQL = `
+      SELECT COUNT(*) as total
+      FROM payment_history
+      ${whereSQL}
+    `;
+
+    const countResult = await queryAsync(countSQL, params);
+
+    return res.json({
+      success: true,
+      transactions,
+      total: countResult?.[0]?.total || 0,
+      totalPages: Math.ceil((countResult?.[0]?.total || 0) / limit),
+      page
+    });
+
+  } catch (err) {
+    console.log(err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+// ================================
+// UPDATE TRANSACTION STATUS API
+// ================================
+router.put("/update-transaction-status", async (req, res) => {
+  try {
+    const { transaction_id, status, invoice_number } = req.body;
+
+    // =====================
+    // VALIDATION
+    // =====================
+    if (!transaction_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Transaction ID required",
+      });
+    }
+
+    if (status === undefined || status === null) {
+      return res.status(400).json({
+        success: false,
+        message: "Status required",
+      });
+    }
+
+    // =====================
+    // BUSINESS LOGIC
+    // =====================
+    let finalInvoice = null;
+
+    if (Number(status) === 1) {
+      if (!invoice_number || invoice_number.trim() === "") {
+        return res.status(400).json({
+          success: false,
+          message: "Invoice number required for completed status",
+        });
+      }
+
+      finalInvoice = invoice_number.trim();
+    }
+
+    const status_updated_at = new Date();
+
+    // =====================
+    // UPDATE QUERY
+    // =====================
+    const result = await queryAsync(
+      `
+      UPDATE payment_history
+      SET
+        status = ?,
+        invoice_num = ?,
+        status_updated_at = ?
+      WHERE id = ?
+      `,
+      [status, finalInvoice, status_updated_at, transaction_id]
+    );
+
+    if (!result) {
+      return res.status(500).json({
+        success: false,
+        message: "Database update failed",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Transaction updated successfully",
+    });
+
+  } catch (error) {
+    console.error("❌ API ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
+
+module.exports = router;
