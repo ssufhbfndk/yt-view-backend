@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-
+const admin = require("firebase-admin");
 const { queryAsync } = require("../config/db");
 
 // ================================
@@ -213,25 +213,74 @@ router.get("/transactions-search", async (req, res) => {
 // UPDATE TRANSACTION STATUS API
 // ================================
 router.put("/update-transaction-status", async (req, res) => {
+
   try {
-    const { transaction_id, status, invoice_number } = req.body;
+
+    const {
+      transaction_id,
+      status,
+      invoice_number
+    } = req.body;
 
     // =====================
     // VALIDATION
     // =====================
     if (!transaction_id) {
+
       return res.status(400).json({
+
         success: false,
-        message: "Transaction ID required",
+
+        message:
+          "Transaction ID required",
       });
     }
 
-    if (status === undefined || status === null) {
+    if (
+      status === undefined
+      ||
+      status === null
+    ) {
+
       return res.status(400).json({
+
         success: false,
-        message: "Status required",
+
+        message:
+          "Status required",
       });
     }
+
+    // =====================
+    // GET TRANSACTION
+    // =====================
+    const rows = await queryAsync(
+      `
+      SELECT
+        payment_history.*,
+        user.fcm_token,
+        user.username
+      FROM payment_history
+      LEFT JOIN user
+      ON payment_history.username = user.username
+      WHERE payment_history.id = ?
+      `,
+      [transaction_id]
+    );
+
+    if (!rows || rows.length === 0) {
+
+      return res.status(404).json({
+
+        success: false,
+
+        message:
+          "Transaction not found",
+      });
+    }
+
+    const transaction =
+      rows[0];
 
     // =====================
     // BUSINESS LOGIC
@@ -239,51 +288,161 @@ router.put("/update-transaction-status", async (req, res) => {
     let finalInvoice = null;
 
     if (Number(status) === 1) {
-      if (!invoice_number || invoice_number.trim() === "") {
+
+      if (
+        !invoice_number
+        ||
+        invoice_number.trim() === ""
+      ) {
+
         return res.status(400).json({
+
           success: false,
-          message: "Invoice number required for completed status",
+
+          message:
+            "Invoice number required for completed status",
         });
       }
 
-      finalInvoice = invoice_number.trim();
+      finalInvoice =
+        invoice_number.trim();
     }
 
-    const status_updated_at = new Date();
+    const status_updated_at =
+      new Date();
 
     // =====================
     // UPDATE QUERY
     // =====================
-    const result = await queryAsync(
-      `
-      UPDATE payment_history
-      SET
-        status = ?,
-        invoice_num = ?,
-        status_updated_at = ?
-      WHERE id = ?
-      `,
-      [status, finalInvoice, status_updated_at, transaction_id]
-    );
+    const result =
+      await queryAsync(
+        `
+        UPDATE payment_history
+        SET
+          status = ?,
+          invoice_num = ?,
+          status_updated_at = ?
+        WHERE id = ?
+        `,
+        [
+          status,
+          finalInvoice,
+          status_updated_at,
+          transaction_id
+        ]
+      );
 
     if (!result) {
+
       return res.status(500).json({
+
         success: false,
-        message: "Database update failed",
+
+        message:
+          "Database update failed",
       });
     }
 
+    // =====================
+    // NOTIFICATION MESSAGE
+    // =====================
+    let notiTitle =
+      "Transaction Update";
+
+    let notiBody =
+      "Your transaction status updated.";
+
+    // ✅ COMPLETED
+    if (Number(status) === 1) {
+
+      notiTitle =
+        "Payment Completed";
+
+      notiBody =
+        `Invoice: ${finalInvoice}`;
+    }
+
+    // ✅ PENDING
+    else if (Number(status) === 0) {
+
+      notiTitle =
+        "Payment Pending";
+
+      notiBody =
+        "Your payment is pending.";
+    }
+
+    // ✅ REJECTED
+    else if (Number(status) === 2) {
+
+      notiTitle =
+        "Payment Rejected";
+
+      notiBody =
+        "Your payment was rejected.";
+    }
+
+    // =====================
+    // SEND FCM
+    // =====================
+    if (
+      transaction.fcm_token
+      &&
+      transaction.fcm_token.trim() !== ""
+    ) {
+
+      try {
+
+        await admin
+          .messaging()
+          .send({
+
+            token:
+              transaction.fcm_token,
+
+            data: {
+
+              title: notiTitle,
+
+              body: notiBody,
+
+              link: ""
+            }
+          });
+
+      } catch (fcmError) {
+
+        console.log(
+          "FCM ERROR:",
+          fcmError
+        );
+      }
+    }
+
+    // =====================
+    // SUCCESS RESPONSE
+    // =====================
     return res.json({
+
       success: true,
-      message: "Transaction updated successfully",
+
+      message:
+        "Transaction updated successfully",
     });
 
   } catch (error) {
-    console.error("❌ API ERROR:", error);
+
+    console.error(
+      "❌ API ERROR:",
+      error
+    );
 
     return res.status(500).json({
+
       success: false,
-      message: "Server error",
+
+      message:
+        "Server error",
     });
   }
 });
