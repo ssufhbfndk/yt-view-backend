@@ -27,7 +27,8 @@ async (req, res) => {
 
         const {
             title,
-            body
+            body,
+            link
         } = req.body;
 
         // validation
@@ -40,6 +41,9 @@ async (req, res) => {
             });
         }
 
+        // =========================
+        // 🔥 MESSAGE OBJECT
+        // =========================
         const message = {
 
             notification: {
@@ -48,18 +52,34 @@ async (req, res) => {
                 body: body
             },
 
+            // ✅ OPTIONAL DATA
+            data: {
+
+                title: title,
+                body: body,
+
+                // agar link na ho
+                // empty string send karo
+                link: link || ""
+            },
+
             topic: "all_users"
         };
 
-        // SEND
+        // =========================
+        // 🔥 SEND
+        // =========================
         const response =
-            await admin.messaging().send(message);
+            await admin
+                .messaging()
+                .send(message);
 
         res.status(200).json({
 
             success: true,
 
-            message: "Broadcast sent successfully",
+            message:
+                "Broadcast sent successfully",
 
             responseId: response
         });
@@ -72,7 +92,8 @@ async (req, res) => {
 
             success: false,
 
-            message: "Broadcast failed"
+            message:
+                "Broadcast failed"
         });
     }
 };
