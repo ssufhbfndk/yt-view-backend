@@ -31,55 +31,56 @@ async (req, res) => {
             link
         } = req.body;
 
-        // validation
+        // =========================
+        // ✅ VALIDATION
+        // =========================
         if (!title || !body) {
 
             return res.status(400).json({
 
                 success: false,
-                message: "Title and body required"
+
+                message:
+                    "Title and body required"
             });
         }
 
         // =========================
-        // 🔥 MESSAGE OBJECT
+        // ✅ MESSAGE OBJECT
         // =========================
         const message = {
 
-            notification: {
-
-                title: title,
-                body: body
-            },
-
-            // ✅ OPTIONAL DATA
+            // 🔥 DATA ONLY
             data: {
 
                 title: title,
+
                 body: body,
 
-                // agar link na ho
-                // empty string send karo
-                link: link || ""
+                // optional link
+                link: link ? link : ""
             },
 
             topic: "all_users"
         };
 
         // =========================
-        // 🔥 SEND
+        // ✅ SEND FIREBASE
         // =========================
         const response =
             await admin
                 .messaging()
                 .send(message);
 
+        // =========================
+        // ✅ SUCCESS RESPONSE
+        // =========================
         res.status(200).json({
 
             success: true,
 
             message:
-                "Broadcast sent successfully",
+                "Broadcast notification sent",
 
             responseId: response
         });
@@ -88,6 +89,9 @@ async (req, res) => {
 
         console.log(error);
 
+        // =========================
+        // ❌ ERROR RESPONSE
+        // =========================
         res.status(500).json({
 
             success: false,
