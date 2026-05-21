@@ -734,93 +734,156 @@ router.post("/increment-views", async (req, res) => {
 
 router.post("/signup", async (req, res) => {
 
-  const { name, username, password, number } = req.body;
+  const {
+    name,
+    username,
+    email,
+    password,
+    number
+  } = req.body;
 
   // ================================
   // ✅ VALIDATION
   // ================================
-  if (!name || !username || !password || !number) {
+  if (
+    !name ||
+    !username ||
+    !password ||
+    !number
+  ) {
+
     return res.status(400).json({
       success: false,
       message: "All fields are required."
     });
   }
 
-  // ✅ Username safe (same rule everywhere)
+  // ================================
+  // ✅ USERNAME VALIDATION
+  // ================================
   if (!username.match(/^[a-zA-Z0-9_]+$/)) {
+
     return res.status(400).json({
       success: false,
       message: "Invalid username"
     });
   }
 
+  // ================================
+  // ✅ OPTIONAL GMAIL VALIDATION
+  // ================================
+  if (
+    email &&
+    !email.match(
+      /^[A-Za-z0-9._%+-]+@gmail\.com$/
+    )
+  ) {
+
+    return res.status(400).json({
+      success: false,
+      message: "Invalid Gmail address"
+    });
+  }
+
   try {
 
-    const result = await db.withTransaction(async (conn) => {
+    const result =
+      await db.withTransaction(async (conn) => {
 
-      console.log("🔄 Transaction started");
+        console.log("🔄 Transaction started");
 
-      // ================================
-      // 1️⃣ CHECK USER EXISTS
-      // ================================
-      const [existing] = await conn.query(
-        "SELECT 1 FROM user WHERE username = ? LIMIT 1",
-        [username]
-      );
+        // ================================
+        // 1️⃣ CHECK USER EXISTS
+        // ================================
+        const [existing] =
+          await conn.query(
+            "SELECT 1 FROM user WHERE username = ? LIMIT 1",
+            [username]
+          );
 
-      if (existing.length > 0) {
-        return { error: "USER_EXISTS" };
-      }
+        if (existing.length > 0) {
 
-      console.log("🔍 Username available");
+          return {
+            error: "USER_EXISTS"
+          };
+        }
 
-      // ================================
-      // 2️⃣ HASH PASSWORD
-      // ================================
-      const hashedPassword = await bcrypt.hash(password, 10);
+        console.log("🔍 Username available");
 
-      // ================================
-      // 3️⃣ INSERT USER
-      // ================================
-      await conn.query(
-        `INSERT INTO user 
-        (name, username, password, number, num_views) 
-        VALUES (?, ?, ?, ?, ?)`,
-        [name, username, hashedPassword, number, 0]
-      );
+        // ================================
+        // 2️⃣ HASH PASSWORD
+        // ================================
+        const hashedPassword =
+          await bcrypt.hash(password, 10);
 
-      // ================================
-      // 4️⃣ SAFE TABLE NAME
-      // ================================
-      const safeUsername = username.replace(/[^a-zA-Z0-9_]/g, "");
-      const profileTable = `profile_${safeUsername}`;
+        // ================================
+        // 3️⃣ INSERT USER
+        // ================================
+        await conn.query(
+          `INSERT INTO user 
+          (
+            name,
+            username,
+            email,
+            password,
+            number,
+            num_views
+          ) 
+          VALUES (?, ?, ?, ?, ?, ?)`,
+          [
+            name,
+            username,
+            email || null,
+            hashedPassword,
+            number,
+            0
+          ]
+        );
 
-      // ================================
-      // 5️⃣ PROFILE TABLE (🔥 OPTIMIZED)
-      // ================================
-      await conn.query(`
-        CREATE TABLE IF NOT EXISTS \`${profileTable}\` (
-          order_id VARCHAR(50) PRIMARY KEY,
-          channel_name VARCHAR(255) NOT NULL,
-          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        // ================================
+        // 4️⃣ SAFE TABLE NAME
+        // ================================
+        const safeUsername =
+          username.replace(
+            /[^a-zA-Z0-9_]/g,
+            ""
+          );
 
-          -- 🚀 FAST COUNT + FILTER
-          INDEX idx_channel (channel_name),
+        const profileTable =
+          `profile_${safeUsername}`;
 
-          -- 🚀 SORT / CLEANUP
-          INDEX idx_timestamp (timestamp)
-        ) ENGINE=InnoDB
-      `);
+        // ================================
+        // 5️⃣ PROFILE TABLE
+        // ================================
+        await conn.query(`
+          CREATE TABLE IF NOT EXISTS \`${profileTable}\` (
 
-      console.log("✅ Profile table created");
+            order_id VARCHAR(50) PRIMARY KEY,
 
-      return { success: true };
-    });
+            channel_name VARCHAR(255) NOT NULL,
+
+            timestamp DATETIME
+            DEFAULT CURRENT_TIMESTAMP,
+
+            INDEX idx_channel (channel_name),
+
+            INDEX idx_timestamp (timestamp)
+
+          ) ENGINE=InnoDB
+        `);
+
+        console.log("✅ Profile table created");
+
+        return {
+          success: true
+        };
+      });
 
     // ================================
     // RESPONSE
     // ================================
     if (!result) {
+
       return res.status(500).json({
         success: false,
         message: "Database busy or error."
@@ -828,6 +891,7 @@ router.post("/signup", async (req, res) => {
     }
 
     if (result.error === "USER_EXISTS") {
+
       return res.status(400).json({
         success: false,
         message: "Username already exists."
