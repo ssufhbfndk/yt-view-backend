@@ -1,256 +1,150 @@
-const express = require("express");
-const router = express.Router();
-const nodemailer = require("nodemailer");
-
-const { queryAsync } = require("../config/db");
-
-const otpStore = {};
+const mysql = require("mysql2/promise");
+require("dotenv").config();
 
 // ================================
-// MAIL TRANSPORT
+// 🔥 POOL (OPTIMIZED FOR HIGH LOAD)
 // ================================
-const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-    }
+const pool = mysql.createPool({
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+
+  waitForConnections: true,
+
+  connectionLimit: 20,   // 🔥 slightly higher but stable
+  queueLimit: 200,       // 🔥 prevent overload crash
+
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 0,
+  connectTimeout: 8000
 });
 
 // ================================
-// GENERATE OTP
+// 🔥 LOAD CONTROL (IMPROVED)
 // ================================
-function generateOTP() {
-    return Math.floor(
-        100000 + Math.random() * 900000
-    ).toString();
-}
+let activeRequests = 0;
+const MAX_ACTIVE = 300; // 🔥 increased safe threshold
 
 // ================================
-// SEND OTP
+// 🔥 CIRCUIT BREAKER (SMART)
 // ================================
-router.post("/send-otp", async (req, res) => {
+let dbDown = false;
+let failCount = 0;
 
+// ================================
+// ✅ SAFE QUERY (FAST + STABLE)
+// ================================
+const queryAsync = async (sql, params = []) => {
+
+  // 🔥 overload protection
+  if (activeRequests >= MAX_ACTIVE) {
+    return null; // fail fast (important for 1k+ req/sec)
+  }
+
+  if (dbDown) {
+    return null;
+  }
+
+  activeRequests++;
+
+  try {
+    const [rows] = await pool.query({
+      sql,
+      timeout: 6000 // 🔥 reduced for fast fail
+    }, params);
+
+    // reset fail count on success
+    failCount = 0;
+
+    return rows;
+
+  } catch (err) {
+
+    console.error("❌ DB ERROR:", err.message);
+
+    failCount++;
+
+    // 🔥 smarter circuit breaker
+    if (failCount >= 5) {
+      dbDown = true;
+
+      setTimeout(() => {
+        dbDown = false;
+        failCount = 0;
+        console.log("✅ DB RECOVERED");
+      }, 5000);
+    }
+
+    return null;
+
+  } finally {
+    activeRequests--;
+  }
+};
+
+// ================================
+// 🔥 TRANSACTION WRAPPER (SAFE)
+// ================================
+const withTransaction = async (callback) => {
+  const conn = await pool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    const result = await callback(conn);
+
+    await conn.commit();
+    return result;
+
+  } catch (err) {
     try {
+      await conn.rollback();
+    } catch (e) {}
 
-        const { username, email } = req.body;
+    console.error("❌ TX ERROR:", err.message);
+    return null;
 
-        // ================================
-        // VALIDATION
-        // ================================
-        if (!username || !email) {
-
-            return res.status(400).json({
-                success: false,
-                message: "Username and email required"
-            });
-        }
-
-        const normalizedEmail =
-            email.toLowerCase().trim();
-
-        const normalizedUsername =
-            username.trim();
-
-        // ================================
-        // CHECK USER EXISTS
-        // ================================
-        const users = await queryAsync(`
-            SELECT id, username, email
-            FROM user
-            WHERE username = ?
-            AND email = ?
-            LIMIT 1
-        `, [
-            normalizedUsername,
-            normalizedEmail
-        ]);
-
-        // DB issue
-        if (users === null) {
-
-            return res.status(500).json({
-                success: false,
-                message: "Database busy"
-            });
-        }
-
-        // User not found
-        if (!users.length) {
-
-            return res.status(404).json({
-                success: false,
-                message: "Invalid username or email"
-            });
-        }
-
-        // ================================
-        // RATE LIMIT
-        // ================================
-        const existingOTP =
-            otpStore[normalizedEmail];
-
-        if (
-            existingOTP &&
-            Date.now() - existingOTP.lastSent
-            < 60000
-        ) {
-
-            return res.status(429).json({
-                success: false,
-                message:
-                    "Wait 60 seconds before retry"
-            });
-        }
-
-        // ================================
-        // GENERATE OTP
-        // ================================
-        const otp = generateOTP();
-
-        // ================================
-        // SAVE OTP
-        // ================================
-        otpStore[normalizedEmail] = {
-            otp,
-            expires:
-                Date.now() + 5 * 60 * 1000,
-            lastSent: Date.now(),
-            attempts: 0
-        };
-
-        // ================================
-        // SEND EMAIL
-        // ================================
-        await transporter.sendMail({
-
-            from: process.env.EMAIL_USER,
-
-            to: normalizedEmail,
-
-            subject: "OTP Verification",
-
-            text:
-`Hello ${normalizedUsername},
-
-Your OTP code is:
-
-${otp}
-
-This OTP expires in 5 minutes.
-
-If you did not request this,
-please ignore this email.`
-        });
-
-        return res.json({
-            success: true,
-            message: "OTP sent successfully"
-        });
-
-    } catch (err) {
-
-        console.log(
-            "❌ OTP SEND ERROR:",
-            err.message
-        );
-
-        return res.status(500).json({
-            success: false,
-            message: "Internal server error"
-        });
-    }
-});
+  } finally {
+    conn.release();
+  }
+};
 
 // ================================
-// VERIFY OTP
+// 🔥 FAST ORDER PICK (OPTIMIZED)
 // ================================
-router.post("/verify-otp", async (req, res) => {
+const pickOrder = async (userId) => {
+  return await withTransaction(async (conn) => {
 
-    try {
+    // 🔥 OPTIMIZED QUERY (index-friendly)
+    const [rows] = await conn.query(`
+      SELECT id
+      FROM orders
+      WHERE status='available'
+      ORDER BY id ASC
+      LIMIT 1
+      FOR UPDATE
+    `);
 
-        const { email, otp } = req.body;
+    if (!rows.length) return null;
 
-        if (!email || !otp) {
+    const orderId = rows[0].id;
 
-            return res.status(400).json({
-                success: false,
-                message: "Email and OTP required"
-            });
-        }
+    await conn.query(`
+      UPDATE orders
+      SET status='assigned', user_id=?
+      WHERE id=? AND status='available'
+    `, [userId, orderId]);
 
-        const normalizedEmail =
-            email.toLowerCase().trim();
+    return orderId;
+  });
+};
 
-        const storedOTP =
-            otpStore[normalizedEmail];
-
-        // OTP not found
-        if (!storedOTP) {
-
-            return res.status(400).json({
-                success: false,
-                message: "OTP not found"
-            });
-        }
-
-        // Expired
-        if (
-            Date.now() > storedOTP.expires
-        ) {
-
-            delete otpStore[normalizedEmail];
-
-            return res.status(400).json({
-                success: false,
-                message: "OTP expired"
-            });
-        }
-
-        // Too many attempts
-        if (storedOTP.attempts >= 5) {
-
-            delete otpStore[normalizedEmail];
-
-            return res.status(429).json({
-                success: false,
-                message:
-                    "Too many attempts"
-            });
-        }
-
-        // Wrong OTP
-        if (storedOTP.otp !== otp) {
-
-            storedOTP.attempts++;
-
-            return res.status(400).json({
-                success: false,
-                message: "Invalid OTP"
-            });
-        }
-
-        // SUCCESS
-        delete otpStore[normalizedEmail];
-
-        return res.json({
-            success: true,
-            message:
-                "OTP verified successfully"
-        });
-
-    } catch (err) {
-
-        console.log(
-            "❌ VERIFY ERROR:",
-            err.message
-        );
-
-        return res.status(500).json({
-            success: false,
-            message: "Internal server error"
-        });
-    }
-});
-
-module.exports = router;
+// ================================
+// EXPORT
+// ================================
+module.exports = {
+  queryAsync,
+  withTransaction,
+  pickOrder
+};
