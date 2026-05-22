@@ -13,26 +13,56 @@ exports.userClientLogin = async (req, res) => {
 
     const {
       username,
+      email,
       password,
       fcm_token
     } = req.body;
 
-    // Validation
-    if (!username || !password) {
+    // =========================
+    // ✅ VALIDATION
+    // =========================
+    if ((!username && !email) || !password) {
 
       return res.status(400).json({
         success: false,
-        message: "Username and Password are required.",
+        message: "Username/Email and Password are required.",
       });
     }
 
     // =========================
     // 🔥 GET USER
     // =========================
-    const results = await db.queryAsync(
-      "SELECT * FROM user WHERE username = ?",
-      [username]
-    );
+    let results;
+
+    // ✅ LOGIN WITH EMAIL
+    if (email) {
+
+      // Gmail validation
+      if (
+        !email.match(
+          /^[A-Za-z0-9._%+-]+@gmail\.com$/
+        )
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          message: "Invalid Gmail address"
+        });
+      }
+
+      results = await db.queryAsync(
+        "SELECT * FROM user WHERE email = ?",
+        [email]
+      );
+
+    } else {
+
+      // ✅ LOGIN WITH USERNAME
+      results = await db.queryAsync(
+        "SELECT * FROM user WHERE username = ?",
+        [username]
+      );
+    }
 
     if (!results) {
 
@@ -46,7 +76,7 @@ exports.userClientLogin = async (req, res) => {
 
       return res.status(401).json({
         success: false,
-        message: "Invalid username or password",
+        message: "Invalid username/email or password",
       });
     }
 
@@ -84,7 +114,7 @@ exports.userClientLogin = async (req, res) => {
 
       return res.status(401).json({
         success: false,
-        message: "Invalid username or password",
+        message: "Invalid username/email or password",
       });
     }
 
@@ -200,7 +230,6 @@ exports.userClientLogin = async (req, res) => {
     });
   }
 };
-
 
 // ================================
 // ✅ LOGOUT
