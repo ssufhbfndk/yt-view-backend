@@ -33,73 +33,72 @@ router.post("/send-otp", async (req, res) => {
 
     try {
 
-        const { username, email } = req.body;
+        const { email } = req.body;
 
         // ================================
         // VALIDATION
         // ================================
-        if (!username || !email) {
-
+        if (!email) {
             return res.status(400).json({
                 success: false,
-                message: "Username and email required"
+                message: "Email is required"
             });
         }
 
-        const normalizedEmail =
-            email.toLowerCase().trim();
-
-        const normalizedUsername =
-            username.trim();
+        const normalizedEmail = email.toLowerCase().trim();
 
         // ================================
-        // CHECK USER EXISTS
+        // EMAIL FORMAT VALIDATION
+        // ================================
+        const emailRegex = /^[A-Za-z0-9._%+-]+@gmail\.com$/;
+
+        if (!emailRegex.test(normalizedEmail)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid Gmail address"
+            });
+        }
+
+        // ================================
+        // CHECK USER EXISTS BY EMAIL ONLY
         // ================================
         const users = await queryAsync(`
             SELECT id, username, email
             FROM user
-            WHERE username = ?
-            AND email = ?
+            WHERE email = ?
             LIMIT 1
-        `, [
-            normalizedUsername,
-            normalizedEmail
-        ]);
+        `, [normalizedEmail]);
 
-        // DB issue
+        // DB ERROR
         if (users === null) {
-
             return res.status(500).json({
                 success: false,
                 message: "Database busy"
             });
         }
 
-        // User not found
+        // USER NOT FOUND
         if (!users.length) {
-
             return res.status(404).json({
                 success: false,
-                message: "Invalid username or email"
+                message: "Email not registered"
             });
         }
 
+        const user = users[0];
+
         // ================================
-        // RATE LIMIT
+        // RATE LIMIT (60 sec)
         // ================================
-        const existingOTP =
-            otpStore[normalizedEmail];
+        const existingOTP = otpStore[normalizedEmail];
 
         if (
             existingOTP &&
-            Date.now() - existingOTP.lastSent
-            < 60000
+            Date.now() - existingOTP.lastSent < 60000
         ) {
-
             return res.status(429).json({
                 success: false,
-                message:
-                    "Wait 60 seconds before retry"
+                message: "Wait 60 seconds before retry"
             });
         }
 
@@ -109,12 +108,11 @@ router.post("/send-otp", async (req, res) => {
         const otp = generateOTP();
 
         // ================================
-        // SAVE OTP
+        // STORE OTP
         // ================================
         otpStore[normalizedEmail] = {
             otp,
-            expires:
-                Date.now() + 5 * 60 * 1000,
+            expires: Date.now() + 5 * 60 * 1000,
             lastSent: Date.now(),
             attempts: 0
         };
@@ -123,24 +121,20 @@ router.post("/send-otp", async (req, res) => {
         // SEND EMAIL
         // ================================
         await transporter.sendMail({
-
             from: process.env.EMAIL_USER,
-
             to: normalizedEmail,
-
             subject: "OTP Verification",
-
-            text:
-`Hello ${normalizedUsername},
+            text: `
+Hello ${user.username},
 
 Your OTP code is:
 
 ${otp}
 
-This OTP expires in 5 minutes.
+This OTP will expire in 5 minutes.
 
-If you did not request this,
-please ignore this email.`
+If you did not request this, ignore this email.
+            `
         });
 
         return res.json({
@@ -150,10 +144,7 @@ please ignore this email.`
 
     } catch (err) {
 
-        console.log(
-            "❌ OTP SEND ERROR:",
-            err.message
-        );
+        console.log("❌ OTP SEND ERROR:", err.message);
 
         return res.status(500).json({
             success: false,
@@ -161,7 +152,6 @@ please ignore this email.`
         });
     }
 });
-
 // ================================
 // VERIFY OTP
 // ================================
