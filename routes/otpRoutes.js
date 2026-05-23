@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const nodemailer = require("nodemailer");
-
+const bcrypt = require("bcrypt");
 const { queryAsync } = require("../config/db");
 
 const otpStore = {};
@@ -306,23 +306,38 @@ router.post("/verify-otp", async (req, res) => {
 
     try {
 
-        const { email, otp } = req.body;
+        const {
+            email,
+            otp,
+            password
+        } = req.body;
 
-        if (!email || !otp) {
+        // ================================
+        // VALIDATION
+        // ================================
+        if (
+            !email ||
+            !otp ||
+            !password
+        ) {
 
             return res.status(400).json({
                 success: false,
-                message: "Email and OTP required"
+                message:
+                    "Email, OTP and password required"
             });
         }
 
         const normalizedEmail =
             email.toLowerCase().trim();
 
+        // ================================
+        // FIND OTP
+        // ================================
         const storedOTP =
             otpStore[normalizedEmail];
 
-        // OTP not found
+        // OTP NOT FOUND
         if (!storedOTP) {
 
             return res.status(400).json({
@@ -331,7 +346,9 @@ router.post("/verify-otp", async (req, res) => {
             });
         }
 
-        // Expired
+        // ================================
+        // OTP EXPIRED
+        // ================================
         if (
             Date.now() > storedOTP.expires
         ) {
@@ -344,8 +361,12 @@ router.post("/verify-otp", async (req, res) => {
             });
         }
 
-        // Too many attempts
-        if (storedOTP.attempts >= 5) {
+        // ================================
+        // TOO MANY ATTEMPTS
+        // ================================
+        if (
+            storedOTP.attempts >= 5
+        ) {
 
             delete otpStore[normalizedEmail];
 
@@ -356,8 +377,12 @@ router.post("/verify-otp", async (req, res) => {
             });
         }
 
-        // Wrong OTP
-        if (storedOTP.otp !== otp) {
+        // ================================
+        // INVALID OTP
+        // ================================
+        if (
+            storedOTP.otp !== otp
+        ) {
 
             storedOTP.attempts++;
 
@@ -367,19 +392,78 @@ router.post("/verify-otp", async (req, res) => {
             });
         }
 
-        // SUCCESS
+        // ================================
+        // FIND USER
+        // ================================
+        const users =
+            await queryAsync(`
+                SELECT id, email
+                FROM user
+                WHERE email = ?
+                LIMIT 1
+            `, [normalizedEmail]);
+
+        // DB ERROR
+        if (users === null) {
+
+            return res.status(500).json({
+                success: false,
+                message: "Database busy"
+            });
+        }
+
+        // USER NOT FOUND
+        if (!users.length) {
+
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
+        }
+
+        const user = users[0];
+
+        // ================================
+        // HASH PASSWORD
+        // ================================
+        const hashedPassword =
+            await bcrypt.hash(
+                password,
+                10
+            );
+
+        // ================================
+        // UPDATE PASSWORD
+        // ================================
+        await queryAsync(`
+            UPDATE user
+            SET password = ?
+            WHERE id = ?
+        `, [
+            hashedPassword,
+            user.id
+        ]);
+
+        // ================================
+        // DELETE OTP AFTER SUCCESS
+        // ================================
         delete otpStore[normalizedEmail];
 
+        // ================================
+        // SUCCESS RESPONSE
+        // ================================
         return res.json({
+
             success: true,
+
             message:
-                "OTP verified successfully"
+                "Password updated successfully"
         });
 
     } catch (err) {
 
         console.log(
-            "❌ VERIFY ERROR:",
+            "❌ VERIFY OTP ERROR:",
             err.message
         );
 
