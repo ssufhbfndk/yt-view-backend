@@ -893,7 +893,7 @@ router.post("/signup", async (req, res) => {
 router.post("/update-name", async (req, res) => {
 
   const { username, name } = req.body;
-console.log(req.body)
+
   // ======================
   // VALIDATION
   // ======================
@@ -927,7 +927,7 @@ console.log(req.body)
     return res.status(500).json({
       success: false,
       message: "Server error",
-      error: err.message
+      error: console.log(err.message)
     });
   }
 });
