@@ -894,9 +894,6 @@ router.post("/update-name", async (req, res) => {
 
   const { username, name } = req.body;
 
-  // ======================
-  // VALIDATION
-  // ======================
   if (!username || !name) {
     return res.status(400).json({
       success: false,
@@ -906,11 +903,18 @@ router.post("/update-name", async (req, res) => {
 
   try {
 
-    const [result] = await db.query(
+    const result = await db.queryAsync(
       "UPDATE user SET name = ? WHERE username = ?",
       [name, username]
     );
-console,log(result);
+
+    if (!result) {
+      return res.status(500).json({
+        success: false,
+        message: "Database error"
+      });
+    }
+
     if (result.affectedRows === 0) {
       return res.status(404).json({
         success: false,
@@ -924,10 +928,10 @@ console,log(result);
     });
 
   } catch (err) {
+    console.error("UPDATE NAME ERROR:", err);
     return res.status(500).json({
       success: false,
-      message: "Server error",
-      error: console.log(err.message)
+      message: "Server error"
     });
   }
 });
@@ -938,9 +942,6 @@ router.post("/update-email", async (req, res) => {
 
   const { username, email } = req.body;
 
-  // ======================
-  // VALIDATION
-  // ======================
   if (!username || !email) {
     return res.status(400).json({
       success: false,
@@ -948,7 +949,6 @@ router.post("/update-email", async (req, res) => {
     });
   }
 
-  // Gmail validation
   if (!email.match(/^[A-Za-z0-9._%+-]+@gmail\.com$/)) {
     return res.status(400).json({
       success: false,
@@ -958,28 +958,29 @@ router.post("/update-email", async (req, res) => {
 
   try {
 
-    // ======================
-    // 1. CHECK EMAIL EXISTS (IMPORTANT)
-    // ======================
-    const [existing] = await db.query(
+    const existing = await db.queryAsync(
       "SELECT username FROM user WHERE email = ? LIMIT 1",
       [email]
     );
 
-    if (existing.length > 0 && existing[0].username !== username) {
+    if (existing && existing.length > 0 && existing[0].username !== username) {
       return res.status(400).json({
         success: false,
         message: "Email already in use"
       });
     }
 
-    // ======================
-    // 2. UPDATE EMAIL
-    // ======================
-    const [result] = await db.query(
+    const result = await db.queryAsync(
       "UPDATE user SET email = ? WHERE username = ?",
       [email, username]
     );
+
+    if (!result) {
+      return res.status(500).json({
+        success: false,
+        message: "Database error"
+      });
+    }
 
     if (result.affectedRows === 0) {
       return res.status(404).json({
@@ -994,10 +995,10 @@ router.post("/update-email", async (req, res) => {
     });
 
   } catch (err) {
+    console.error("UPDATE EMAIL ERROR:", err);
     return res.status(500).json({
       success: false,
-      message: "Server error",
-      error: err.message
+      message: "Server error"
     });
   }
 });
