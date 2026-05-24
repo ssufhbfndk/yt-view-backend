@@ -910,7 +910,7 @@ router.post("/update-name", async (req, res) => {
       "UPDATE user SET name = ? WHERE username = ?",
       [name, username]
     );
-
+console,log(result);
     if (result.affectedRows === 0) {
       return res.status(404).json({
         success: false,
