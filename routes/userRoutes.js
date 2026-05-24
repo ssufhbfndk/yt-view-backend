@@ -745,13 +745,7 @@ router.post("/signup", async (req, res) => {
   // ================================
   // ✅ VALIDATION
   // ================================
-  if (
-    !name ||
-    !username ||
-    !password ||
-    !number
-  ) {
-
+  if (!name || !username || !password || !number) {
     return res.status(400).json({
       success: false,
       message: "All fields are required."
@@ -759,10 +753,9 @@ router.post("/signup", async (req, res) => {
   }
 
   // ================================
-  // ✅ USERNAME VALIDATION
+  // ✅ USERNAME FORMAT VALIDATION
   // ================================
   if (!username.match(/^[a-zA-Z0-9_]+$/)) {
-
     return res.status(400).json({
       success: false,
       message: "Invalid username"
@@ -770,15 +763,9 @@ router.post("/signup", async (req, res) => {
   }
 
   // ================================
-  // ✅ OPTIONAL GMAIL VALIDATION
+  // ✅ EMAIL FORMAT VALIDATION (OPTIONAL)
   // ================================
-  if (
-    email &&
-    !email.match(
-      /^[A-Za-z0-9._%+-]+@gmail\.com$/
-    )
-  ) {
-
+  if (email && !email.match(/^[A-Za-z0-9._%+-]+@gmail\.com$/)) {
     return res.status(400).json({
       success: false,
       message: "Invalid Gmail address"
@@ -787,103 +774,85 @@ router.post("/signup", async (req, res) => {
 
   try {
 
-    const result =
-      await db.withTransaction(async (conn) => {
+    const result = await db.withTransaction(async (conn) => {
 
-        console.log("🔄 Transaction started");
 
-        // ================================
-        // 1️⃣ CHECK USER EXISTS
-        // ================================
-        const [existing] =
-          await conn.query(
-            "SELECT 1 FROM user WHERE username = ? LIMIT 1",
-            [username]
-          );
 
-        if (existing.length > 0) {
+      // ================================
+      // 1️⃣ CHECK USERNAME EXISTS
+      // ================================
+      const [existingUser] = await conn.query(
+        "SELECT username FROM user WHERE username = ? LIMIT 1",
+        [username]
+      );
 
-          return {
-            error: "USER_EXISTS"
-          };
-        }
+      if (existingUser.length > 0) {
+        return { error: "USER_EXISTS" };
+      }
 
-        console.log("🔍 Username available");
+      // ================================
+      // 2️⃣ CHECK EMAIL EXISTS (IMPORTANT FIX)
+      // ================================
+      if (email) {
 
-        // ================================
-        // 2️⃣ HASH PASSWORD
-        // ================================
-        const hashedPassword =
-          await bcrypt.hash(password, 10);
-
-        // ================================
-        // 3️⃣ INSERT USER
-        // ================================
-        await conn.query(
-          `INSERT INTO user 
-          (
-            name,
-            username,
-            email,
-            password,
-            number,
-            num_views
-          ) 
-          VALUES (?, ?, ?, ?, ?, ?)`,
-          [
-            name,
-            username,
-            email || null,
-            hashedPassword,
-            number,
-            0
-          ]
+        const [existingEmail] = await conn.query(
+          "SELECT username FROM user WHERE email = ? LIMIT 1",
+          [email]
         );
 
-        // ================================
-        // 4️⃣ SAFE TABLE NAME
-        // ================================
-        const safeUsername =
-          username.replace(
-            /[^a-zA-Z0-9_]/g,
-            ""
-          );
+        if (existingEmail.length > 0) {
+          return { error: "EMAIL_EXISTS" };
+        }
+      }
 
-        const profileTable =
-          `profile_${safeUsername}`;
 
-        // ================================
-        // 5️⃣ PROFILE TABLE
-        // ================================
-        await conn.query(`
-          CREATE TABLE IF NOT EXISTS \`${profileTable}\` (
+      // ================================
+      // 3️⃣ HASH PASSWORD
+      // ================================
+      const hashedPassword = await bcrypt.hash(password, 10);
 
-            order_id VARCHAR(50) PRIMARY KEY,
+      // ================================
+      // 4️⃣ INSERT USER
+      // ================================
+      await conn.query(
+        `INSERT INTO user 
+        (name, username, email, password, number, num_views)
+        VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          name,
+          username,
+          email || null,
+          hashedPassword,
+          number,
+          0
+        ]
+      );
 
-            channel_name VARCHAR(255) NOT NULL,
+      // ================================
+      // 5️⃣ CREATE PROFILE TABLE
+      // ================================
+      const safeUsername = username.replace(/[^a-zA-Z0-9_]/g, "");
+      const profileTable = `profile_${safeUsername}`;
 
-            timestamp DATETIME
-            DEFAULT CURRENT_TIMESTAMP,
+      await conn.query(`
+        CREATE TABLE IF NOT EXISTS \`${profileTable}\` (
+          order_id VARCHAR(50) PRIMARY KEY,
+          channel_name VARCHAR(255) NOT NULL,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_channel (channel_name),
+          INDEX idx_timestamp (timestamp)
+        ) ENGINE=InnoDB
+      `);
 
-            INDEX idx_channel (channel_name),
+      console.log("✅ User created");
 
-            INDEX idx_timestamp (timestamp)
-
-          ) ENGINE=InnoDB
-        `);
-
-        console.log("✅ Profile table created");
-
-        return {
-          success: true
-        };
-      });
+      return { success: true };
+    });
 
     // ================================
-    // RESPONSE
+    // RESPONSE HANDLING
     // ================================
     if (!result) {
-
       return res.status(500).json({
         success: false,
         message: "Database busy or error."
@@ -891,14 +860,18 @@ router.post("/signup", async (req, res) => {
     }
 
     if (result.error === "USER_EXISTS") {
-
       return res.status(400).json({
         success: false,
         message: "Username already exists."
       });
     }
 
-    console.log("🎉 Transaction committed");
+    if (result.error === "EMAIL_EXISTS") {
+      return res.status(400).json({
+        success: false,
+        message: "Email already exists."
+      });
+    }
 
     return res.json({
       success: true,
@@ -906,12 +879,124 @@ router.post("/signup", async (req, res) => {
     });
 
   } catch (err) {
-
     console.error("❌ SIGNUP ERROR:", err);
 
     return res.status(500).json({
       success: false,
       message: "Internal server error.",
+      error: err.message
+    });
+  }
+});
+//user name update
+
+router.post("/update-name", async (req, res) => {
+
+  const { username, name } = req.body;
+
+  // ======================
+  // VALIDATION
+  // ======================
+  if (!username || !name) {
+    return res.status(400).json({
+      success: false,
+      message: "Username and name required"
+    });
+  }
+
+  try {
+
+    const [result] = await db.query(
+      "UPDATE user SET name = ? WHERE username = ?",
+      [name, username]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Name updated successfully"
+    });
+
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: err.message
+    });
+  }
+});
+
+// user gmail update
+
+router.post("/update-email", async (req, res) => {
+
+  const { username, email } = req.body;
+
+  // ======================
+  // VALIDATION
+  // ======================
+  if (!username || !email) {
+    return res.status(400).json({
+      success: false,
+      message: "Username and email required"
+    });
+  }
+
+  // Gmail validation
+  if (!email.match(/^[A-Za-z0-9._%+-]+@gmail\.com$/)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid Gmail address"
+    });
+  }
+
+  try {
+
+    // ======================
+    // 1. CHECK EMAIL EXISTS (IMPORTANT)
+    // ======================
+    const [existing] = await db.query(
+      "SELECT username FROM user WHERE email = ? LIMIT 1",
+      [email]
+    );
+
+    if (existing.length > 0 && existing[0].username !== username) {
+      return res.status(400).json({
+        success: false,
+        message: "Email already in use"
+      });
+    }
+
+    // ======================
+    // 2. UPDATE EMAIL
+    // ======================
+    const [result] = await db.query(
+      "UPDATE user SET email = ? WHERE username = ?",
+      [email, username]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Email updated successfully"
+    });
+
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
       error: err.message
     });
   }
