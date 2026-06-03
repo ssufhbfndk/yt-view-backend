@@ -4,10 +4,7 @@ const router = express.Router();
 const db = require("../config/db"); // MySQL Connection
 const bcrypt = require("bcrypt");
 const { queryAsync,  } = require("../config/db");
-// Example Protected Route
-//router.get("/profile", protectUser, (req, res) => {
- // res.json({ success: true, user: req.session.user });
-//});
+const { io } = require("../server");
 
 
 
@@ -1108,7 +1105,7 @@ router.post("/withdraw-payment", async (req, res) => {
       const updatedViews = numViews - coins;
 
       // =========================
-      // UPDATE BALANCE
+      // UPDATE USER BALANCE
       // =========================
       await conn.query(
         "UPDATE user SET num_views = ? WHERE username = ?",
@@ -1120,19 +1117,10 @@ router.post("/withdraw-payment", async (req, res) => {
 
       // =========================
       // SAVE PAYMENT HISTORY
-      // SINGLE TABLE
       // =========================
       const [insertResult] = await conn.query(
         `INSERT INTO payment_history
-        (
-          username,
-          bank_name,
-          bank_account_number,
-          account_holder_name,
-          coins,
-          amount_pkr,
-          amount_usd
-        )
+        (username, bank_name, bank_account_number, account_holder_name, coins, amount_pkr, amount_usd)
         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
           username,
@@ -1150,10 +1138,11 @@ router.post("/withdraw-payment", async (req, res) => {
         updatedViews,
         paymentId: insertResult.insertId
       };
+
     });
 
     // =========================
-    // RESPONSE
+    // ERROR HANDLING
     // =========================
     if (!result) {
       return res.status(500).json({
@@ -1176,6 +1165,32 @@ router.post("/withdraw-payment", async (req, res) => {
       });
     }
 
+    // =========================
+    // ADMIN NOTIFICATION DB (OUTSIDE TRANSACTION)
+    // =========================
+    await db.query(
+      `INSERT INTO admin_notifications
+      (title, message, type, is_read)
+      VALUES (?, ?, ?, 0)`,
+      [
+        "New Withdrawal Request",
+        `${username} requested withdrawal of ${coins} coins`,
+        "withdraw"
+      ]
+    );
+
+    // =========================
+    // SOCKET NOTIFICATION
+    // =========================
+    io.emit("admin_notification", {
+      title: "New Withdrawal Request",
+      message: `${username} requested withdrawal`,
+      type: "withdraw"
+    });
+
+    // =========================
+    // RESPONSE
+    // =========================
     return res.json({
       success: true,
       message: "Withdraw successful",
@@ -1190,8 +1205,10 @@ router.post("/withdraw-payment", async (req, res) => {
       message: "Server error",
       error: err.message
     });
+
   }
 });
+
 //payment history
 
 router.get("/payment-history/:username", async (req, res) => {
