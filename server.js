@@ -4,7 +4,7 @@ const dotenv = require("dotenv");
 const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
 const path = require('path');
-
+const http = require("http");
 
 const userRoutes = require("./routes/userRoutes");
 const orderRoutes = require("./routes/orderRoutes");
@@ -18,6 +18,23 @@ const otpRoutes = require("./routes/otpRoutes");
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
+const server = http.createServer(app);
+
+const { Server } = require("socket.io");
+
+const io = new Server(server, {
+  cors: {
+    origin: "*"
+  }
+});
+
+io.on("connection", (socket) => {
+  console.log("Client connected:", socket.id);
+
+  socket.on("disconnect", () => {
+    console.log("Client disconnected:", socket.id);
+  });
+});
 
 // Middleware
 app.use(bodyParser.json());
@@ -78,6 +95,8 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, message: "Internal Server Error" });
 });
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`✅ Server running on http://localhost:${PORT}`);
 });
+
+module.exports = { io };

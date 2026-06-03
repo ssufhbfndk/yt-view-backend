@@ -123,14 +123,15 @@ router.get("/get-users", async (req, res) => {
     // ================================
     const sql = `
       SELECT
-        id,
-        name,
-        username,
-        number,
-        status,
-        num_views,
-        token_created_at
-      FROM user
+  id,
+  name,
+  username,
+  email,
+  number,
+  status,
+  num_views,
+  token_created_at
+FROM user
       ${whereSQL}
       ORDER BY id DESC
       LIMIT ? OFFSET ?
@@ -269,15 +270,16 @@ router.get("/search-users", async (req, res) => {
     // MAIN QUERY
     // ================================
     const sql = `
-      SELECT
-        id,
-        name,
-        username,
-        number,
-        status,
-        num_views,
-        token_created_at
-      FROM user
+     SELECT
+  id,
+  name,
+  username,
+  email,
+  number,
+  status,
+  num_views,
+  token_created_at
+FROM user
       ${whereSQL}
       ORDER BY id DESC
       LIMIT ? OFFSET ?
