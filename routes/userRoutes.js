@@ -1182,11 +1182,15 @@ router.post("/withdraw-payment", async (req, res) => {
     // =========================
     // SOCKET NOTIFICATION
     // =========================
-    socket.getIO().emit("admin_notification", {
-      title: "New Withdrawal Request",
-      message: `${username} requested withdrawal`,
-      type: "withdraw"
-    });
+    const ioInstance = socket.getIO();
+
+if (ioInstance) {
+  ioInstance.emit("admin_notification", {
+    title: "New Withdrawal Request",
+    message: `${username} requested withdrawal`,
+    type: "withdraw"
+  });
+}
 
     // =========================
     // RESPONSE

@@ -23,11 +23,13 @@ const server = http.createServer(app);
 const io = socket.init(server);
 
 io.on("connection", (socket) => {
+
   console.log("Client connected:", socket.id);
 
-  socket.on("disconnect", () => {
-    console.log("Client disconnected:", socket.id);
+  socket.on("join_admin", () => {
+    socket.join("admin-room");
   });
+
 });
 
 // Middleware
