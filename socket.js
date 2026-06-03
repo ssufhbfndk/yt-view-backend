@@ -6,8 +6,9 @@ module.exports = {
     init: (server) => {
         io = new Server(server, {
             cors: {
-                origin: "*"
-            }
+    origin: "https://ythub.lat",
+    credentials: true
+  }
         });
 
         return io;
