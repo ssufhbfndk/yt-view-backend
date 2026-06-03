@@ -5,7 +5,7 @@ const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
 const path = require('path');
 const http = require("http");
-
+const socket = require("./socket");
 const userRoutes = require("./routes/userRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const adminRoutes = require("./routes/adminRoutes");
@@ -20,13 +20,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
 
-const { Server } = require("socket.io");
-
-const io = new Server(server, {
-  cors: {
-    origin: "*"
-  }
-});
+const io = socket.init(server);
 
 io.on("connection", (socket) => {
   console.log("Client connected:", socket.id);
@@ -99,4 +93,3 @@ server.listen(PORT, () => {
   console.log(`✅ Server running on http://localhost:${PORT}`);
 });
 
-module.exports = { io };

@@ -4,7 +4,7 @@ const router = express.Router();
 const db = require("../config/db"); // MySQL Connection
 const bcrypt = require("bcrypt");
 const { queryAsync,  } = require("../config/db");
-const { io } = require("../server");
+const socket = require("../socket");
 
 
 
@@ -1182,7 +1182,7 @@ router.post("/withdraw-payment", async (req, res) => {
     // =========================
     // SOCKET NOTIFICATION
     // =========================
-    io.emit("admin_notification", {
+    socket.getIO().emit("admin_notification", {
       title: "New Withdrawal Request",
       message: `${username} requested withdrawal`,
       type: "withdraw"
