@@ -23,10 +23,7 @@ router.post(
 // ============================
 // GET ADMIN NOTIFICATIONS
 // ============================
-router.get(
-  "/notifications",
-  verifyAdminToken,
-  async (req, res) => {
+router.get("/notifications",async (req, res) => {
     try {
 
       const rows = await db.queryAsync(
