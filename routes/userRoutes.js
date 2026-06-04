@@ -1168,27 +1168,29 @@ router.post("/withdraw-payment", async (req, res) => {
     // =========================
     // ADMIN NOTIFICATION DB (OUTSIDE TRANSACTION)
     // =========================
-    await db.query(
-      `INSERT INTO admin_notifications
-      (title, message, type, is_read)
-      VALUES (?, ?, ?, 0)`,
-      [
-        "New Withdrawal Request",
-        `${username} requested withdrawal of ${pkr} pkr`,
-        "withdraw"
-      ]
-    );
+    await db.queryAsync(
+  `INSERT INTO admin_notifications
+  (title, message, type, reference_id, is_read)
+  VALUES (?, ?, ?, ?, 0)`,
+  [
+    "New Withdrawal Request",
+    `${username} requested withdrawal of ${pkr} pkr`,
+    "withdraw",
+    result.paymentId
+  ]
+);
 
     // =========================
     // SOCKET NOTIFICATION
     // =========================
-    const ioInstance = socket.getIO();
+   const ioInstance = socket.getIO();
 
 if (ioInstance) {
   ioInstance.emit("admin_notification", {
     title: "New Withdrawal Request",
     message: `${username} requested withdrawal`,
-    type: "withdraw"
+    type: "withdraw",
+    reference_id: result.paymentId
   });
 }
 

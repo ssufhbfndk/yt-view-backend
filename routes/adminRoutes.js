@@ -51,4 +51,61 @@ router.get(
     }
   }
 );
+
+router.post(
+  "/open-notification",
+  async (req, res) => {
+
+    try {
+
+      const { notification_id } = req.body;
+
+      const notification = await db.queryAsync(
+        `SELECT *
+         FROM admin_notifications
+         WHERE id = ?
+         LIMIT 1`,
+        [notification_id]
+      );
+
+      if (!notification.length) {
+        return res.status(404).json({
+          success: false,
+          message: "Notification not found"
+        });
+      }
+
+      const referenceId =
+        notification[0].reference_id;
+
+      const payment = await db.queryAsync(
+        `SELECT *
+         FROM payment_history
+         WHERE id = ?
+         LIMIT 1`,
+        [referenceId]
+      );
+
+      await db.queryAsync(
+        `DELETE FROM admin_notifications
+         WHERE id = ?`,
+        [notification_id]
+      );
+
+      return res.json({
+        success: true,
+        payment: payment[0]
+      });
+
+    } catch (err) {
+
+      return res.status(500).json({
+        success: false,
+        message: "Server error"
+      });
+
+    }
+
+  }
+);
 module.exports = router;
