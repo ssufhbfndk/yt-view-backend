@@ -1174,7 +1174,7 @@ router.post("/withdraw-payment", async (req, res) => {
       VALUES (?, ?, ?, 0)`,
       [
         "New Withdrawal Request",
-        `${username} requested withdrawal of ${coins} coins`,
+        `${username} requested withdrawal of ${pkr} pkr`,
         "withdraw"
       ]
     );
