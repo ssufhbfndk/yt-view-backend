@@ -42,6 +42,8 @@ app.use(cookieParser()); // ✅ For parsing cookies
 
 const corsOptions = {
   origin: [
+     "https://ythub.lat",
+    "https://www.ythub.lat",
     "http://localhost:3000",
     "https://yt-view-front.vercel.app",
     "exp://localhost:19000",
