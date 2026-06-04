@@ -2,7 +2,7 @@ const express = require("express");
 const db = require("../config/db");
 const { login, logout, checkAdminSession,changePassword ,sendBroadcastNotification} = require("../controllers/adminController");
 const { verifyAdminToken } = require("../middleware/authMiddleware");
-
+const socket = require("../socket");
 const router = express.Router();
 
 router.post("/login", login);
@@ -105,4 +105,41 @@ router.post(
 
   }
 );
+
+router.post("/test-notification", async (req, res) => {
+  try {
+
+    const {
+      title,
+      message,
+      type,
+      reference_id
+    } = req.body;
+
+    const ioInstance = socket.getIO();
+
+    if (ioInstance) {
+      ioInstance.emit("admin_notification", {
+        title,
+        message,
+        type,
+        reference_id
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Notification sent successfully"
+    });
+
+  } catch (error) {
+
+    console.error("Notification Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to send notification"
+    });
+  }
+});
 module.exports = router;
