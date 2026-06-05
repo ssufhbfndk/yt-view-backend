@@ -111,7 +111,7 @@ router.get("/notification-count", async (req, res) => {
     const [rows] = await db.query(`
       SELECT COUNT(*) AS count
       FROM admin_notifications
-      WHERE is_open = 0
+      WHERE is_read = 0
     `);
 
     res.json({
