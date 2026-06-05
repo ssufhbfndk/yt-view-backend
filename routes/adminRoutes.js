@@ -105,7 +105,31 @@ router.post(
 
   }
 );
+router.get("/notification-count", async (req, res) => {
+  try {
 
+    const [rows] = await db.query(`
+      SELECT COUNT(*) AS count
+      FROM admin_notifications
+      WHERE is_open = 0
+    `);
+
+    res.json({
+      success: true,
+      count: rows[0].count
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: "Server Error"
+    });
+
+  }
+});
 router.post("/test-notification", async (req, res) => {
   try {
 
