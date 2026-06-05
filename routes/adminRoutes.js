@@ -49,14 +49,9 @@ router.get("/notifications",async (req, res) => {
   }
 );
 
-router.post(
-  "/open-notification",
-  async (req, res) => {
-
+router.post("/open-notification", async (req, res) => {
     try {
-
       const { notification_id } = req.body;
-
       const notification = await db.queryAsync(
         `SELECT *
          FROM admin_notifications
