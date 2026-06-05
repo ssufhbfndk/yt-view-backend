@@ -103,24 +103,23 @@ router.post("/open-notification", async (req, res) => {
 router.get("/notification-count", async (req, res) => {
   try {
 
-    const [rows] = await db.query(`
+    const rows = await db.queryAsync(`
       SELECT COUNT(*) AS count
       FROM admin_notifications
-      WHERE is_read = 0
     `);
 
     res.json({
       success: true,
-      count: rows[0].count
+      count: rows[0].count || 0
     });
 
   } catch (error) {
 
-    console.error(error);
+    console.error("notification-count:", error);
 
     res.status(500).json({
       success: false,
-      message: "Server Error"
+      message: error.message
     });
 
   }
