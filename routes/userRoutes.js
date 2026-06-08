@@ -62,21 +62,17 @@ router.post("/check-username", async (req, res) => {
 
 // 🛠 Get all users
 router.get("/get-users", async (req, res) => {
-
   try {
-
     let { page, limit, status } = req.query;
 
     // ================================
     // REQUIRED
     // ================================
     if (!page || !limit) {
-
       return res.status(400).json({
         success: false,
-        message: "page and limit required"
+        message: "page and limit required",
       });
-
     }
 
     page = parseInt(page);
@@ -90,25 +86,24 @@ router.get("/get-users", async (req, res) => {
     // ================================
     // STATUS FILTER
     // ================================
-    if (status !== undefined && status !== "all") {
-
-      // ✅ support both frontend strings + db numbers
+    if (
+      status !== undefined &&
+      status !== "all" &&
+      status !== "lastactive"
+    ) {
       const statusMap = {
         active: 1,
         blocked: 0,
         1: 1,
-        0: 0
+        0: 0,
       };
 
       const statusValue = statusMap[status];
 
       if (statusValue !== undefined) {
-
         where.push("status = ?");
         params.push(statusValue);
-
       }
-
     }
 
     const whereSQL = where.length
@@ -116,28 +111,37 @@ router.get("/get-users", async (req, res) => {
       : "";
 
     // ================================
+    // ORDER BY
+    // ================================
+    let orderBy = "ORDER BY id DESC";
+
+    if (status === "lastactive") {
+      orderBy = "ORDER BY token_created_at DESC";
+    }
+
+    // ================================
     // MAIN QUERY
     // ================================
     const sql = `
       SELECT
-  id,
-  name,
-  username,
-  email,
-  number,
-  status,
-  num_views,
-  token_created_at
-FROM user
+        id,
+        name,
+        username,
+        email,
+        number,
+        status,
+        num_views,
+        token_created_at
+      FROM user
       ${whereSQL}
-      ORDER BY id DESC
+      ${orderBy}
       LIMIT ? OFFSET ?
     `;
 
     const users = await queryAsync(sql, [
       ...params,
       limit,
-      offset
+      offset,
     ]);
 
     // ================================
@@ -155,62 +159,45 @@ FROM user
     );
 
     return res.json({
-
       success: true,
-
       users,
-
       total: countResult?.[0]?.total || 0,
-
       totalPages: Math.ceil(
         (countResult?.[0]?.total || 0) / limit
       ),
-
-      page
-
+      page,
     });
-
   } catch (err) {
-
     console.log(err);
 
     return res.status(500).json({
       success: false,
-      message: "Server error"
+      message: "Server error",
     });
-
   }
-
 });
-
 
 
 // 🔍 Search users
 router.get("/search-users", async (req, res) => {
-
   try {
-
     let { page, limit, status, search } = req.query;
 
     // ================================
     // REQUIRED
     // ================================
     if (!page || !limit) {
-
       return res.status(400).json({
         success: false,
-        message: "page and limit required"
+        message: "page and limit required",
       });
-
     }
 
     if (!search || search.trim() === "") {
-
       return res.status(400).json({
         success: false,
-        message: "search required"
+        message: "search required",
       });
-
     }
 
     page = parseInt(page);
@@ -228,35 +215,35 @@ router.get("/search-users", async (req, res) => {
       (
         username LIKE ?
         OR number LIKE ?
-         OR name LIKE ?
+        OR name LIKE ?
       )
     `);
 
     params.push(`%${search}%`);
     params.push(`%${search}%`);
     params.push(`%${search}%`);
+
     // ================================
     // STATUS FILTER
     // ================================
-    if (status !== undefined && status !== "all") {
-
-      // ✅ support both strings + numbers
+    if (
+      status !== undefined &&
+      status !== "all" &&
+      status !== "lastactive"
+    ) {
       const statusMap = {
         active: 1,
         blocked: 0,
         1: 1,
-        0: 0
+        0: 0,
       };
 
       const statusValue = statusMap[status];
 
       if (statusValue !== undefined) {
-
         where.push("status = ?");
         params.push(statusValue);
-
       }
-
     }
 
     const whereSQL = where.length
@@ -264,29 +251,37 @@ router.get("/search-users", async (req, res) => {
       : "";
 
     // ================================
+    // ORDER BY
+    // ================================
+    let orderBy = "ORDER BY id DESC";
+
+    if (status === "lastactive") {
+      orderBy = "ORDER BY token_created_at DESC";
+    }
+
+    // ================================
     // MAIN QUERY
     // ================================
     const sql = `
-     SELECT
-  id,
-  name,
-  username,
-  email,
-  number,
-  status,
-  num_views,
-  token_created_at
-FROM user
+      SELECT
+        id,
+        name,
+        username,
+        email,
+        number,
+        status,
+        num_views,
+        token_created_at
+      FROM user
       ${whereSQL}
-      ORDER BY id DESC
+      ${orderBy}
       LIMIT ? OFFSET ?
     `;
 
-    const users = await queryAsync(sql, [
-      ...params,
-      limit,
-      offset
-    ]);
+    const users = await queryAsync([
+      sql,
+      [...params, limit, offset]
+    ][0], [...params, limit, offset]);
 
     // ================================
     // TOTAL COUNT
@@ -303,34 +298,23 @@ FROM user
     );
 
     return res.json({
-
       success: true,
-
       users,
-
       total: countResult?.[0]?.total || 0,
-
       totalPages: Math.ceil(
         (countResult?.[0]?.total || 0) / limit
       ),
-
-      page
-
+      page,
     });
-
   } catch (err) {
-
     console.log(err);
 
     return res.status(500).json({
       success: false,
-      message: "Server error"
+      message: "Server error",
     });
-
   }
-
 });
-
 
 // ===============================
 // UPDATE USER API
