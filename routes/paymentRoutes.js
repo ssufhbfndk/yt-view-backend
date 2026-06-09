@@ -481,4 +481,112 @@ router.get("/payment-management", async (req, res) => {
     });
   }
 });
+
+router.put("/update-payment-management", async (req, res) => {
+  try {
+    const { type, value } = req.body;
+
+    if (!type || value === undefined || value === null) {
+      return res.status(400).json({
+        success: false,
+        message: "Type and value are required"
+      });
+    }
+
+    const numericValue = Number(value);
+
+    if (isNaN(numericValue) || numericValue < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid value"
+      });
+    }
+
+    // ==========================
+    // ADMIN BALANCE UPDATE
+    // ==========================
+    if (type === "adminDebit") {
+
+      const rows = await queryAsync(
+        "SELECT admin_balance FROM payout_settings LIMIT 1"
+      );
+
+      if (!rows || rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Payout settings not found"
+        });
+      }
+
+      const currentBalance = Number(rows[0].admin_balance) || 0;
+
+      const updatedBalance = currentBalance + numericValue;
+
+      await queryAsync(
+        "UPDATE payout_settings SET admin_balance = ?",
+        [updatedBalance]
+      );
+
+      return res.json({
+        success: true,
+        message: "Admin balance updated successfully",
+        old_balance: currentBalance,
+        added_amount: numericValue,
+        new_balance: updatedBalance
+      });
+    }
+
+    // ==========================
+    // CLIENT RATE UPDATE
+    // ==========================
+    if (type === "clientRate") {
+
+      await queryAsync(
+        "UPDATE payout_settings SET client_rate = ?",
+        [numericValue]
+      );
+
+      return res.json({
+        success: true,
+        message: "Client rate updated successfully",
+        client_rate: numericValue
+      });
+    }
+
+    // ==========================
+    // DOLLAR RATE UPDATE
+    // ==========================
+    if (type === "dollarRate") {
+
+      await queryAsync(
+        "UPDATE payout_settings SET dollar_rate = ?",
+        [numericValue]
+      );
+
+      return res.json({
+        success: true,
+        message: "Dollar rate updated successfully",
+        dollar_rate: numericValue
+      });
+    }
+
+    // ==========================
+    // INVALID TYPE
+    // ==========================
+    return res.status(400).json({
+      success: false,
+      message: "Invalid update type"
+    });
+
+  } catch (error) {
+
+    console.error("update-payment-management error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
 module.exports = router;
