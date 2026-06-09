@@ -589,6 +589,8 @@ router.put("/update-payment-management", async (req, res) => {
   }
 });
 
+
+
 router.get("/view-payment-management", async (req, res) => {
   try {
 
@@ -596,7 +598,7 @@ router.get("/view-payment-management", async (req, res) => {
     // TODAY (completed only)
     // =========================
     const todayRows = await queryAsync(`
-      SELECT COALESCE(SUM(amount), 0) AS total
+      SELECT COALESCE(SUM(amount_pkr), 0) AS total
       FROM payment_history
       WHERE DATE(created_at) = CURDATE()
       AND status = 1
@@ -606,7 +608,7 @@ router.get("/view-payment-management", async (req, res) => {
     // LAST 7 DAYS
     // =========================
     const weekRows = await queryAsync(`
-      SELECT COALESCE(SUM(amount), 0) AS total
+      SELECT COALESCE(SUM(amount_pkr), 0) AS total
       FROM payment_history
       WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
       AND status = 1
@@ -616,7 +618,7 @@ router.get("/view-payment-management", async (req, res) => {
     // LAST 30 DAYS
     // =========================
     const monthRows = await queryAsync(`
-      SELECT COALESCE(SUM(amount), 0) AS total
+      SELECT COALESCE(SUM(amount_pkr), 0) AS total
       FROM payment_history
       WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
       AND status = 1
@@ -626,7 +628,7 @@ router.get("/view-payment-management", async (req, res) => {
     // YEAR
     // =========================
     const yearRows = await queryAsync(`
-      SELECT COALESCE(SUM(amount), 0) AS total
+      SELECT COALESCE(SUM(amount_pkr), 0) AS total
       FROM payment_history
       WHERE created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
       AND status = 1
@@ -636,16 +638,16 @@ router.get("/view-payment-management", async (req, res) => {
     // PENDING (status = 0)
     // =========================
     const pendingRows = await queryAsync(`
-      SELECT COALESCE(SUM(amount), 0) AS total
+      SELECT COALESCE(SUM(amount_pkr), 0) AS total
       FROM payment_history
       WHERE status = 0
     `);
 
     // =========================
-    // REJECTED (optional tracking)
+    // REJECTED (status = 2)
     // =========================
     const rejectedRows = await queryAsync(`
-      SELECT COALESCE(SUM(amount), 0) AS total
+      SELECT COALESCE(SUM(amount_pkr), 0) AS total
       FROM payment_history
       WHERE status = 2
     `);
@@ -694,4 +696,6 @@ router.get("/view-payment-management", async (req, res) => {
     });
   }
 });
+
+
 module.exports = router;
