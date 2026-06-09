@@ -595,61 +595,14 @@ router.get("/view-payment-management", async (req, res) => {
   try {
 
     // =========================
-    // TODAY (completed only)
+    // SINGLE QUERY: ALL DATA
     // =========================
-    const todayRows = await queryAsync(`
-      SELECT COALESCE(SUM(amount_pkr), 0) AS total
+    const rows = await queryAsync(`
+      SELECT 
+        amount_pkr,
+        status,
+        created_at
       FROM payment_history
-      WHERE DATE(created_at) = CURDATE()
-      AND status = 1
-    `);
-
-    // =========================
-    // LAST 7 DAYS
-    // =========================
-    const weekRows = await queryAsync(`
-      SELECT COALESCE(SUM(amount_pkr), 0) AS total
-      FROM payment_history
-      WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-      AND status = 1
-    `);
-
-    // =========================
-    // LAST 30 DAYS
-    // =========================
-    const monthRows = await queryAsync(`
-      SELECT COALESCE(SUM(amount_pkr), 0) AS total
-      FROM payment_history
-      WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-      AND status = 1
-    `);
-
-    // =========================
-    // YEAR
-    // =========================
-    const yearRows = await queryAsync(`
-      SELECT COALESCE(SUM(amount_pkr), 0) AS total
-      FROM payment_history
-      WHERE created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
-      AND status = 1
-    `);
-
-    // =========================
-    // PENDING (status = 0)
-    // =========================
-    const pendingRows = await queryAsync(`
-      SELECT COALESCE(SUM(amount_pkr), 0) AS total
-      FROM payment_history
-      WHERE status = 0
-    `);
-
-    // =========================
-    // REJECTED (status = 2)
-    // =========================
-    const rejectedRows = await queryAsync(`
-      SELECT COALESCE(SUM(amount_pkr), 0) AS total
-      FROM payment_history
-      WHERE status = 2
     `);
 
     // =========================
@@ -661,31 +614,91 @@ router.get("/view-payment-management", async (req, res) => {
       LIMIT 1
     `);
 
-    // =========================
-    // VALUES
-    // =========================
-    const todayPayments = Number(todayRows?.[0]?.total || 0);
-    const weekPayments = Number(weekRows?.[0]?.total || 0);
-    const monthPayments = Number(monthRows?.[0]?.total || 0);
-    const yearPayments = Number(yearRows?.[0]?.total || 0);
-
-    const pendingPayments = Number(pendingRows?.[0]?.total || 0);
-    const rejectedPayments = Number(rejectedRows?.[0]?.total || 0);
-
     const adminBalance = Number(adminRows?.[0]?.admin_balance || 0);
+
+    // =========================
+    // INITIAL VALUES
+    // =========================
+    let today = 0;
+    let week = 0;
+    let month = 0;
+    let year = 0;
+
+    let pending = 0;
+    let rejected = 0;
+    let completedTotal = 0;
+
+    const now = new Date();
+
+    // =========================
+    // PROCESS DATA IN JS
+    // =========================
+    rows.forEach((item) => {
+
+      const amount = Number(item.amount_pkr || 0);
+      const status = Number(item.status);
+      const date = new Date(item.created_at);
+
+      // =====================
+      // STATUS CALC
+      // =====================
+      if (status === 1) {
+        completedTotal += amount;
+
+        // TODAY
+        if (date.toDateString() === now.toDateString()) {
+          today += amount;
+        }
+
+        // WEEK (7 days)
+        const diffDays = (now - date) / (1000 * 60 * 60 * 24);
+        if (diffDays <= 7) {
+          week += amount;
+        }
+
+        // MONTH (30 days)
+        if (diffDays <= 30) {
+          month += amount;
+        }
+
+        // YEAR (365 days)
+        if (diffDays <= 365) {
+          year += amount;
+        }
+      }
+
+      // =====================
+      // PENDING
+      // =====================
+      if (status === 0) {
+        pending += amount;
+      }
+
+      // =====================
+      // REJECTED
+      // =====================
+      if (status === 2) {
+        rejected += amount;
+      }
+
+    });
 
     // =========================
     // RESPONSE
     // =========================
     return res.json({
       success: true,
-      todayPayments,
-      weekPayments,
-      monthPayments,
-      yearPayments,
-      pendingPayments,
-      rejectedPayments,
-      adminBalance
+
+      todayPayments: today,
+      weekPayments: week,
+      monthPayments: month,
+      yearPayments: year,
+
+      pendingPayments: pending,
+      rejectedPayments: rejected,
+
+      adminBalance,
+      completedPayments: completedTotal
     });
 
   } catch (error) {
