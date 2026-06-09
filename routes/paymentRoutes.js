@@ -589,4 +589,109 @@ router.put("/update-payment-management", async (req, res) => {
   }
 });
 
+router.get("/view-payment-management", async (req, res) => {
+  try {
+
+    // =========================
+    // TODAY (completed only)
+    // =========================
+    const todayRows = await queryAsync(`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM payment_history
+      WHERE DATE(created_at) = CURDATE()
+      AND status = 1
+    `);
+
+    // =========================
+    // LAST 7 DAYS
+    // =========================
+    const weekRows = await queryAsync(`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM payment_history
+      WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+      AND status = 1
+    `);
+
+    // =========================
+    // LAST 30 DAYS
+    // =========================
+    const monthRows = await queryAsync(`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM payment_history
+      WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+      AND status = 1
+    `);
+
+    // =========================
+    // YEAR
+    // =========================
+    const yearRows = await queryAsync(`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM payment_history
+      WHERE created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)
+      AND status = 1
+    `);
+
+    // =========================
+    // PENDING (status = 0)
+    // =========================
+    const pendingRows = await queryAsync(`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM payment_history
+      WHERE status = 0
+    `);
+
+    // =========================
+    // REJECTED (optional tracking)
+    // =========================
+    const rejectedRows = await queryAsync(`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM payment_history
+      WHERE status = 2
+    `);
+
+    // =========================
+    // ADMIN BALANCE
+    // =========================
+    const adminRows = await queryAsync(`
+      SELECT admin_balance
+      FROM payout_settings
+      LIMIT 1
+    `);
+
+    // =========================
+    // VALUES
+    // =========================
+    const todayPayments = Number(todayRows?.[0]?.total || 0);
+    const weekPayments = Number(weekRows?.[0]?.total || 0);
+    const monthPayments = Number(monthRows?.[0]?.total || 0);
+    const yearPayments = Number(yearRows?.[0]?.total || 0);
+
+    const pendingPayments = Number(pendingRows?.[0]?.total || 0);
+    const rejectedPayments = Number(rejectedRows?.[0]?.total || 0);
+
+    const adminBalance = Number(adminRows?.[0]?.admin_balance || 0);
+
+    // =========================
+    // RESPONSE
+    // =========================
+    return res.json({
+      success: true,
+      todayPayments,
+      weekPayments,
+      monthPayments,
+      yearPayments,
+      pendingPayments,
+      rejectedPayments,
+      adminBalance
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
 module.exports = router;
