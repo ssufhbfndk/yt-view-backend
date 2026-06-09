@@ -447,4 +447,37 @@ router.put("/update-transaction-status", async (req, res) => {
   }
 });
 
+router.get("/payment-management", async (req, res) => {
+  try {
+
+    const rows = await db.queryAsync(
+      "SELECT client_rate, dollar_rate, admin_balance FROM payout_settings LIMIT 1"
+    );
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Payout settings not found"
+      });
+    }
+
+    const data = rows[0];
+
+    return res.json({
+      success: true,
+      clientRate: Number(data.client_rate) || 0,
+      dollarRate: Number(data.dollar_rate) || 0,
+      adminDebit: Number(data.admin_debit) || 0
+    });
+
+  } catch (error) {
+    console.error("Payment settings error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
 module.exports = router;
