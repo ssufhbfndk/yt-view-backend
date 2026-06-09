@@ -447,10 +447,12 @@ router.put("/update-transaction-status", async (req, res) => {
   }
 });
 
+
+
 router.get("/payment-management", async (req, res) => {
   try {
 
-    const rows = await db.queryAsync(
+    const rows = await queryAsync(
       "SELECT client_rate, dollar_rate, admin_balance FROM payout_settings LIMIT 1"
     );
 
@@ -461,17 +463,17 @@ router.get("/payment-management", async (req, res) => {
       });
     }
 
-    const data = rows[0];
+    const settings = rows[0];
 
     return res.json({
       success: true,
-      clientRate: Number(data.client_rate) || 0,
-      dollarRate: Number(data.dollar_rate) || 0,
-      adminDebit: Number(data.admin_debit) || 0
+      clientRate: Number(settings.client_rate) || 0,
+      dollarRate: Number(settings.dollar_rate) || 0,
+      adminDebit: Number(settings.admin_debit) || 0
     });
 
   } catch (error) {
-    console.error("Payment settings error:", error);
+    console.error("payment-management error:", error);
 
     return res.status(500).json({
       success: false,
@@ -479,5 +481,4 @@ router.get("/payment-management", async (req, res) => {
     });
   }
 });
-
 module.exports = router;
