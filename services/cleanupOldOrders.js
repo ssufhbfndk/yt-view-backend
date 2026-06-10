@@ -8,9 +8,9 @@ const deleteOldOrders = async () => {
     // =========================
     // GET USERS
     // =========================
-    const users = await db.queryAsync(
-      "SELECT username FROM user"
-    );
+  const users = await db.queryAsync(
+  "SELECT username FROM user WHERE status = 1"
+);
 
     if (!users || users.length === 0) {
       console.log("🚫 No users found. Skipping cleanup.");
