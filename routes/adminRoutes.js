@@ -4,7 +4,7 @@ const { login, logout, checkAdminSession,changePassword ,sendBroadcastNotificati
 const { verifyAdminToken } = require("../middleware/authMiddleware");
 const socket = require("../socket");
 const router = express.Router();
-
+const admin = require("../firebaseAdmin");
 router.post("/login", login);
 router.post("/logout", logout);
 router.get("/check-session", verifyAdminToken, checkAdminSession);
@@ -124,7 +124,9 @@ router.get("/notification-count", async (req, res) => {
 
   }
 });
+
 router.post("/test-notification", async (req, res) => {
+
   try {
 
     const {
@@ -134,6 +136,9 @@ router.post("/test-notification", async (req, res) => {
       reference_id
     } = req.body;
 
+    // =========================
+    // 1. SOCKET NOTIFICATION
+    // =========================
     const ioInstance = socket.getIO();
 
     if (ioInstance) {
@@ -145,9 +150,48 @@ router.post("/test-notification", async (req, res) => {
       });
     }
 
+    // =========================
+    // 2. FIREBASE PUSH (ALL ADMINS)
+    // =========================
+    const resultTokens = await db.queryAsync(
+      `SELECT web_fcm_token 
+       FROM adminuser
+       WHERE web_fcm_token IS NOT NULL`
+    );
+
+    await Promise.all(
+      resultTokens.map(async (row) => {
+
+        if (!row.web_fcm_token) return;
+
+        try {
+
+          await admin.messaging().send({
+            token: row.web_fcm_token,
+
+            notification: {
+              title: title,
+              body: message
+            },
+
+            webpush: {
+              notification: {
+                icon: "https://ythub.lat/logo192.png"
+              }
+            }
+
+          });
+
+        } catch (err) {
+          console.log("FCM failed:", err.message);
+        }
+
+      })
+    );
+
     return res.status(200).json({
       success: true,
-      message: "Notification sent successfully"
+      message: "Socket + FCM notification sent successfully"
     });
 
   } catch (error) {
@@ -158,6 +202,45 @@ router.post("/test-notification", async (req, res) => {
       success: false,
       message: "Failed to send notification"
     });
+
   }
+});
+
+router.post("/save-web-token", async (req, res) => {
+
+  try {
+
+    const { adminId, token } = req.body;
+
+    if (!adminId || !token) {
+      return res.status(400).json({
+        success: false,
+        message: "adminId and token required"
+      });
+    }
+
+    await db.queryAsync(
+      `UPDATE admin
+       SET web_fcm_token = ?
+       WHERE id = ?`,
+      [token, adminId]
+    );
+
+    return res.json({
+      success: true,
+      message: "Web FCM token saved"
+    });
+
+  } catch (error) {
+
+    console.error("save-web-token error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+
+  }
+
 });
 module.exports = router;

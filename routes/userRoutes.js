@@ -5,7 +5,7 @@ const db = require("../config/db"); // MySQL Connection
 const bcrypt = require("bcrypt");
 const { queryAsync,  } = require("../config/db");
 const socket = require("../socket");
-
+const admin = require("../firebaseAdmin");
 
 
 // 🛠 Check if user exists
@@ -1177,7 +1177,44 @@ if (ioInstance) {
     reference_id: result.paymentId
   });
 }
+// =========================
+// FIREBASE PUSH (ALL ADMINS)
+// =========================
+const resultTokens = await db.queryAsync(
+  `SELECT web_fcm_token 
+   FROM adminuser
+   WHERE web_fcm_token IS NOT NULL`
+);
 
+await Promise.all(
+  resultTokens.map(async (row) => {
+
+    if (!row.web_fcm_token) return;
+
+    try {
+
+      await admin.messaging().send({
+        token: row.web_fcm_token,
+
+        notification: {
+          title: "New Withdrawal Request",
+          body: `${username} requested withdrawal of ${pkr} PKR`
+        },
+
+        webpush: {
+          notification: {
+            icon: "https://ythub.lat/logo192.png"
+          }
+        }
+
+      });
+
+    } catch (err) {
+      console.error("Push failed:", err.message);
+    }
+
+  })
+);
     // =========================
     // RESPONSE
     // =========================
