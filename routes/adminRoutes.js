@@ -220,7 +220,7 @@ router.post("/save-web-token", async (req, res) => {
     }
 
     await db.queryAsync(
-      `UPDATE admin
+      `UPDATE adminuser
        SET web_fcm_token = ?
        WHERE id = ?`,
       [token, adminId]
