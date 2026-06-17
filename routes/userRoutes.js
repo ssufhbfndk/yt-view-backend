@@ -1180,21 +1180,24 @@ if (ioInstance) {
 // =========================
 // FIREBASE PUSH (ALL ADMINS)
 // =========================
+// =========================
+// FIREBASE PUSH (ALL ADMINS)
+// =========================
 const resultTokens = await db.queryAsync(
-  `SELECT web_fcm_token 
-   FROM adminuser
-   WHERE web_fcm_token IS NOT NULL`
+  `SELECT DISTINCT fcm_token
+   FROM admin_fcm_tokens
+   WHERE fcm_token IS NOT NULL`
 );
 
 await Promise.all(
   resultTokens.map(async (row) => {
 
-    if (!row.web_fcm_token) return;
+    if (!row.fcm_token) return;
 
     try {
 
       await admin.messaging().send({
-        token: row.web_fcm_token,
+        token: row.fcm_token,
 
         notification: {
           title: "New Withdrawal Request",
@@ -1210,7 +1213,30 @@ await Promise.all(
       });
 
     } catch (err) {
-      console.error("Push failed:", err.message);
+
+      console.error(
+        "Push failed:",
+        err.message
+      );
+
+      // Invalid token auto delete
+      if (
+        err.code ===
+        "messaging/registration-token-not-registered"
+      ) {
+
+        await db.queryAsync(
+          `DELETE FROM admin_fcm_tokens
+           WHERE fcm_token = ?`,
+          [row.fcm_token]
+        );
+
+        console.log(
+          "Invalid token removed:",
+          row.fcm_token
+        );
+      }
+
     }
 
   })
