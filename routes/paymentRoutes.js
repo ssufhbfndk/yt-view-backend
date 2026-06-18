@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const admin = require("firebase-admin");
 const { queryAsync } = require("../config/db");
-const verifyAdminToken = require("../middleware/verifyAdminToken");
+const {verifyAdminToken} = require("../middleware/verifyAdminToken");
 // ================================
 // GET TRANSACTIONS VIEW API
 // ================================
