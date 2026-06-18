@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');  // Assuming db.js is where your MySQL connection is set up
-
+const {verifyAdminToken} = require("../middleware/authMiddleware");
 
 router.post("/fetch-order", async (req, res) => {
   const { username, ip, model } = req.body;
@@ -196,7 +196,7 @@ router.post("/fetch-order", async (req, res) => {
   }
 });
 //add muliti order
-router.post("/multi-orders", async (req, res) => {
+router.post("/multi-orders",verifyAdminToken, async (req, res) => {
   const { orders } = req.body;
 
   if (!Array.isArray(orders) || orders.length === 0) {
@@ -283,7 +283,7 @@ router.post("/multi-orders", async (req, res) => {
 
 // add single order
 
-router.post("/single-order", async (req, res) => {
+router.post("/single-order",verifyAdminToken, async (req, res) => {
 
   const {
     orderId,
@@ -350,7 +350,7 @@ router.post("/single-order", async (req, res) => {
 // ======================================
 // GET ORDERS
 // ======================================
-router.get("/get-orders", async (req, res) => {
+router.get("/get-orders",verifyAdminToken, async (req, res) => {
 
   try {
 
@@ -794,7 +794,7 @@ WHERE (
 
 });
 
-router.get("/search-orders", async (req, res) => {
+router.get("/search-orders",verifyAdminToken, async (req, res) => {
   try {
     const {
       page,
@@ -1206,7 +1206,7 @@ WHERE ${searchCondition}
 });
 
 
-router.post("/delete-multiple", async (req, res) => {
+router.post("/delete-multiple",verifyAdminToken, async (req, res) => {
   try {
 
     const { orders } = req.body;

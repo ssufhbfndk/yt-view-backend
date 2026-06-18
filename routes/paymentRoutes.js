@@ -547,7 +547,7 @@ router.put("/update-payment-management",verifyAdminToken, async (req, res) => {
 
 
 
-router.get("/view-payment-management", async (req, res) => {
+router.get("/view-payment-management",verifyAdminToken, async (req, res) => {
   try {
 
     // =========================

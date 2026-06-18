@@ -15,8 +15,7 @@ router.put(
 );
 
 router.post(
-    "/broadcast-notification",
-    sendBroadcastNotification
+    "/broadcast-notification",verifyAdminToken,sendBroadcastNotification
 );
 
 
