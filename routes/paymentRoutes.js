@@ -212,10 +212,7 @@ router.get("/transactions-search", verifyAdminToken, async (req, res) => {
 // ================================
 // UPDATE TRANSACTION STATUS API
 // ================================
-router.put(
-  "/update-transaction-status",
-  verifyAdminToken,
-  async (req, res) => {
+router.put( "/update-transaction-status", verifyAdminToken, async (req, res) => {
     try {
       const {
         transaction_id,
@@ -408,7 +405,7 @@ ${transaction.coins} coins have been returned to your account.`;
 );
 
 
-router.get("/payment-management", async (req, res) => {
+router.get("/payment-management", verifyAdminToken, async (req, res) => {
   try {
 
     const rows = await queryAsync(
@@ -441,7 +438,7 @@ router.get("/payment-management", async (req, res) => {
   }
 });
 
-router.put("/update-payment-management", async (req, res) => {
+router.put("/update-payment-management",verifyAdminToken, async (req, res) => {
   try {
     const { type, value } = req.body;
 
