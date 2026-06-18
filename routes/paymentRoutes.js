@@ -2,11 +2,11 @@ const express = require("express");
 const router = express.Router();
 const admin = require("firebase-admin");
 const { queryAsync } = require("../config/db");
-
+const verifyAdminToken = require("../middleware/verifyAdminToken");
 // ================================
 // GET TRANSACTIONS VIEW API
 // ================================
-router.get("/transactions-view", async (req, res) => {
+router.get("/transactions-view", verifyAdminToken, async (req, res) => {
   try {
 
     let { page, limit, status } = req.query;
@@ -106,7 +106,7 @@ router.get("/transactions-view", async (req, res) => {
 // ================================
 // SEARCH TRANSACTIONS
 // ================================
-router.get("/transactions-search", async (req, res) => {
+router.get("/transactions-search", verifyAdminToken, async (req, res) => {
   try {
 
     let { page, limit, search, status } = req.query;
