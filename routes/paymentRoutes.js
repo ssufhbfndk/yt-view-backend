@@ -469,5 +469,322 @@ router.get("/view-payment-management",verifyAdminToken, async (req, res) => {
   }
 });
 
+// 📌 GET WALLET DATA (WITH USERNAME)
+router.get("/wallet-data/:username", async (req, res) => {
+  const { username } = req.params;
 
+  if (!username) {
+    return res.status(400).json({
+      success: false,
+      message: "Username required"
+    });
+  }
+
+  try {
+
+    const userRows = await db.queryAsync(
+      "SELECT num_views FROM user WHERE username = ? LIMIT 1",
+      [username]
+    );
+
+    if (!userRows || userRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    const settingsRows = await db.queryAsync(
+      "SELECT client_rate, dollar_rate FROM payout_settings LIMIT 1"
+    );
+
+    if (!settingsRows || settingsRows.length === 0) {
+      return res.status(500).json({
+        success: false,
+        message: "Payout settings missing"
+      });
+    }
+
+    const coins = Number(userRows[0].num_views) || 0;
+    const client_rate = (Number(settingsRows[0].client_rate) || 0) / 1000;
+    const dollar_rate = Number(settingsRows[0].dollar_rate) || 0;
+
+    return res.json({
+      success: true,
+      coins,
+      client_rate,
+      dollar_rate
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+// withdraw-payment
+
+router.post("/withdraw-payment", async (req, res) => {
+  const {
+    username,
+    bank_name,
+    account_holder_name,
+    account,
+    coins,
+    usd,
+    pkr
+  } = req.body;
+
+  if (!username || !account || !coins) {
+    return res.status(400).json({
+      success: false,
+      message: "Missing required fields"
+    });
+  }
+
+  try {
+
+    const result = await db.withTransaction(async (conn) => {
+
+      // =========================
+      // USER CHECK + LOCK
+      // =========================
+      const [userResult] = await conn.query(
+        "SELECT num_views FROM user WHERE username = ? FOR UPDATE",
+        [username]
+      );
+
+      if (userResult.length === 0) {
+        return { error: "USER_NOT_FOUND" };
+      }
+
+      const numViews = userResult[0].num_views;
+
+      // =========================
+      // BALANCE CHECK
+      // =========================
+      if (numViews < coins) {
+        return { error: "INSUFFICIENT" };
+      }
+
+      const updatedViews = numViews - coins;
+
+      // =========================
+      // UPDATE USER BALANCE
+      // =========================
+      await conn.query(
+        "UPDATE user SET num_views = ? WHERE username = ?",
+        [updatedViews, username]
+      );
+
+      const safeUsd = usd ?? 0;
+      const safePkr = pkr ?? 0;
+
+      // =========================
+      // SAVE PAYMENT HISTORY
+      // =========================
+      const [insertResult] = await conn.query(
+        `INSERT INTO payment_history
+        (username, bank_name, bank_account_number, account_holder_name, coins, amount_pkr, amount_usd)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          username,
+          bank_name,
+          account,
+          account_holder_name,
+          coins,
+          safePkr,
+          safeUsd
+        ]
+      );
+
+      return {
+        success: true,
+        updatedViews,
+        paymentId: insertResult.insertId
+      };
+
+    });
+
+    // =========================
+    // ERROR HANDLING
+    // =========================
+    if (!result) {
+      return res.status(500).json({
+        success: false,
+        message: "Server error"
+      });
+    }
+
+    if (result.error === "USER_NOT_FOUND") {
+      return res.json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    if (result.error === "INSUFFICIENT") {
+      return res.json({
+        success: false,
+        message: "Insufficient balance"
+      });
+    }
+
+    // =========================
+    // ADMIN NOTIFICATION DB (OUTSIDE TRANSACTION)
+    // =========================
+    await db.queryAsync(
+  `INSERT INTO admin_notifications
+  (title, message, type, reference_id, is_read)
+  VALUES (?, ?, ?, ?, 0)`,
+  [
+    "New Withdrawal Request",
+    `${username} requested withdrawal of ${pkr} pkr`,
+    "withdraw",
+    result.paymentId
+  ]
+);
+
+    // =========================
+    // SOCKET NOTIFICATION
+    // =========================
+   const ioInstance = socket.getIO();
+
+if (ioInstance) {
+  ioInstance.emit("admin_notification", {
+    title: "New Withdrawal Request",
+    message: `${username} requested withdrawal`,
+    type: "withdraw",
+    reference_id: result.paymentId
+  });
+}
+// =========================
+// FIREBASE PUSH (ALL ADMINS)
+// =========================
+// =========================
+// FIREBASE PUSH (ALL ADMINS)
+// =========================
+const resultTokens = await db.queryAsync(
+  `SELECT DISTINCT fcm_token
+   FROM admin_fcm_tokens
+   WHERE fcm_token IS NOT NULL`
+);
+
+await Promise.all(
+  resultTokens.map(async (row) => {
+
+    if (!row.fcm_token) return;
+
+    try {
+
+      await admin.messaging().send({
+        token: row.fcm_token,
+
+        notification: {
+          title: "New Withdrawal Request",
+          body: `${username} requested withdrawal of ${pkr} PKR`
+        },
+
+        webpush: {
+          notification: {
+            icon: "https://ythub.lat/logo192.png"
+          }
+        }
+
+      });
+
+    } catch (err) {
+
+      console.error(
+        "Push failed:",
+        err.message
+      );
+
+      // Invalid token auto delete
+      if (
+        err.code ===
+        "messaging/registration-token-not-registered"
+      ) {
+
+        await db.queryAsync(
+          `DELETE FROM admin_fcm_tokens
+           WHERE fcm_token = ?`,
+          [row.fcm_token]
+        );
+
+        console.log(
+          "Invalid token removed:",
+          row.fcm_token
+        );
+      }
+
+    }
+
+  })
+);
+    // =========================
+    // RESPONSE
+    // =========================
+    return res.json({
+      success: true,
+      message: "Withdraw successful",
+      num_views: result.updatedViews,
+      payment_id: result.paymentId
+    });
+
+  } catch (err) {
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: err.message
+    });
+
+  }
+});
+
+//payment history
+
+router.get("/payment-history/:username", async (req, res) => {
+
+  const { username } = req.params;
+
+  if (!username) {
+    return res.status(400).json({
+      success: false,
+      message: "Username required"
+    });
+  }
+
+  try {
+
+    const rows = await db.queryAsync(
+      `SELECT 
+        id,
+        bank_name,
+        account_holder_name,
+        bank_account_number AS account,
+        coins,
+        amount_usd,
+        amount_pkr,
+        status,
+        created_at
+      FROM payment_history
+      WHERE username = ?
+      ORDER BY id DESC`,
+      [username]
+    );
+
+    return res.json(rows || []);
+
+  } catch (err) {
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
 module.exports = router;
