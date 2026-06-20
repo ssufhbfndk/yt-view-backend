@@ -14,6 +14,7 @@ const externalOrderRoute = require('./routes/externalOrder');
 const paymentRoutes = require("./routes/paymentRoutes")
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const otpRoutes = require("./routes/otpRoutes");
+const adminNotificationRoute = require("./routes/adminNotificationRoute");
 
 dotenv.config();
 const app = express();
@@ -72,6 +73,7 @@ app.use('/api', externalOrderRoute);
 app.use('/api/payment', paymentRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/otp", otpRoutes);
+app.use("/api/adminNotification", adminNotificationRoute);
 // React build folder serve karo (outside current dir)
 app.use(express.static(path.join(__dirname, '..', 'yt-view-front', 'build')));
 
