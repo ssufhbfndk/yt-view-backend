@@ -460,9 +460,136 @@ WHERE ${searchCondition}
   }
 };
 
+//GET TRANSACTIONS DATA
 
+const getTransactionsData = async (req, res, isSearch = false) => {
+  try {
+    let { page, limit, status, search } = req.query;
+
+    if (!page || !limit) {
+      return res.status(400).json({
+        success: false,
+        message: "page and limit required",
+      });
+    }
+
+    if (isSearch && (!search || search.trim() === "")) {
+      return res.status(400).json({
+        success: false,
+        message: "search required",
+      });
+    }
+
+    page = parseInt(page);
+    limit = parseInt(limit);
+
+    const offset = (page - 1) * limit;
+
+    let where = [];
+    let params = [];
+
+    // =========================
+    // SEARCH CONDITION
+    // =========================
+    if (isSearch) {
+      where.push(`
+        (
+          username LIKE ?
+          OR CAST(id AS CHAR) LIKE ?
+          OR invoice_num LIKE ?
+        )
+      `);
+
+      params.push(`%${search}%`);
+      params.push(`%${search}%`);
+      params.push(`%${search}%`);
+    }
+
+    // =========================
+    // STATUS CONDITION
+    // =========================
+    if (status !== undefined && status !== "all") {
+      const statusMap = {
+        pending: 0,
+        completed: 1,
+        rejected: 2,
+        0: 0,
+        1: 1,
+        2: 2,
+      };
+
+      const statusValue = statusMap[status];
+
+      if (statusValue !== undefined) {
+        where.push("status = ?");
+        params.push(statusValue);
+      }
+    }
+
+    const whereSQL =
+      where.length > 0
+        ? `WHERE ${where.join(" AND ")}`
+        : "";
+
+    const sql = `
+      SELECT
+        id,
+        username,
+        bank_name,
+        bank_account_number,
+        account_holder_name,
+        coins,
+        amount_pkr,
+        amount_usd,
+        status,
+        invoice_num,
+        created_at,
+        status_updated_at
+      FROM payment_history
+      ${whereSQL}
+      ORDER BY id DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    const transactions = await queryAsync(sql, [
+      ...params,
+      limit,
+      offset,
+    ]);
+
+    const countSQL = `
+      SELECT COUNT(*) as total
+      FROM payment_history
+      ${whereSQL}
+    `;
+
+    const countResult = await queryAsync(
+      countSQL,
+      params
+    );
+
+    return res.json({
+      success: true,
+      transactions,
+      total: countResult?.[0]?.total || 0,
+      totalPages: Math.ceil(
+        (countResult?.[0]?.total || 0) / limit
+      ),
+      page,
+    });
+
+  } catch (err) {
+    console.log(err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
 
 module.exports = {
    getUsersData,
-   getOrdersData
+   getOrdersData,
+   getTransactionsData
 };
