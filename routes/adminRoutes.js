@@ -22,7 +22,7 @@ router.post(
 // ============================
 // GET ADMIN NOTIFICATIONS
 // ============================
-router.get("/notifications",async (req, res) => {
+router.get("/notifications",verifyAdminToken,async (req, res) => {
     try {
 
       const rows = await db.queryAsync(
@@ -48,7 +48,7 @@ router.get("/notifications",async (req, res) => {
   }
 );
 
-router.post("/open-notification", async (req, res) => {
+router.post("/open-notification",verifyAdminToken, async (req, res) => {
     try {
       const { notification_id } = req.body;
       const notification = await db.queryAsync(
@@ -99,7 +99,7 @@ router.post("/open-notification", async (req, res) => {
 
   }
 );
-router.get("/notification-count", async (req, res) => {
+router.get("/notification-count",verifyAdminToken, async (req, res) => {
   try {
 
     const rows = await db.queryAsync(`
@@ -224,7 +224,7 @@ await Promise.all(
   }
 });
 
-router.post("/save-web-token", async (req, res) => {
+router.post("/save-web-token", verifyAdminToken, async (req, res) => {
 
   try {
 

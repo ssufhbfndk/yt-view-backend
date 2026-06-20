@@ -1,12 +1,12 @@
 const express = require("express");
 const router = express.Router();
-
+const {verifyAdminToken} = require("../middleware/authMiddleware");
 const { queryAsync } = require("../config/db");
 
 // ======================================================
 // DASHBOARD STATS API
 // ======================================================
-router.get("/stats", async (req, res) => {
+router.get("/stats", verifyAdminToken,async (req, res) => {
 
   try {
 

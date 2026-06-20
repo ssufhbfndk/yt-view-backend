@@ -6,7 +6,7 @@ const bcrypt = require("bcrypt");
 const { queryAsync,  } = require("../config/db");
 const socket = require("../socket");
 const admin = require("../firebaseAdmin");
-
+const {verifyAdminToken} = require("../middleware/authMiddleware");
 
 // 🛠 Check if user exists
 // 🛠 Check if user exists
@@ -61,7 +61,7 @@ router.post("/check-username", async (req, res) => {
 });
 
 // 🛠 Get all users
-router.get("/get-users", async (req, res) => {
+router.get("/get-users",verifyAdminToken, async (req, res) => {
   try {
     let { page, limit, status } = req.query;
 
@@ -179,7 +179,7 @@ router.get("/get-users", async (req, res) => {
 
 
 // 🔍 Search users
-router.get("/search-users", async (req, res) => {
+router.get("/search-users",verifyAdminToken, async (req, res) => {
   try {
     let { page, limit, status, search } = req.query;
 
@@ -320,7 +320,7 @@ router.get("/search-users", async (req, res) => {
 // UPDATE USER API
 // ===============================
 
-router.put("/update-user", async (req, res) => {
+router.put("/update-user",verifyAdminToken, async (req, res) => {
 
   try {
 
