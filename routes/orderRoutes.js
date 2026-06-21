@@ -117,21 +117,53 @@ router.post("/fetch-order", async (req, res) => {
       );
 
       // 🔥 ORDER PROCESS
-      if (currentRemaining <= 0) {
+    if (currentRemaining <= 0) {
 
-        await conn.query(
-          `INSERT INTO complete_orders
-           (order_id, video_link, quantity, channel_name, timestamp)
-           VALUES (?, ?, ?, ?, NOW())`,
-          [order.order_id, order.video_link, order.quantity, order.channel_name]
-        );
+  await conn.query(
+    `INSERT INTO complete_orders
+     (
+       order_id,
+       type,
+       duration,
+       video_link,
+       channel_name,
+       quantity,
+       timestamp
+     )
+     VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+    [
+      order.order_id,
+      order.type,
+      order.duration,
+      order.video_link,
+      order.channel_name,
+      order.quantity
+    ]
+  );
 
-        await conn.query(
-          `DELETE FROM orders WHERE order_id = ?`,
-          [order.order_id]
-        );
+  const [skipOrder] = await conn.query(
+    `SELECT id
+     FROM skip_point
+     WHERE order_id = ?
+     LIMIT 1`,
+    [order.order_id]
+  );
 
-      } else {
+  if (skipOrder.length > 0) {
+    await conn.query(
+      `DELETE FROM skip_point
+       WHERE order_id = ?`,
+      [order.order_id]
+    );
+  }
+
+  await conn.query(
+    `DELETE FROM orders
+     WHERE order_id = ?`,
+    [order.order_id]
+  );
+
+} else {
 
         const delayPool = [5,15,30,45,60,75,90,120,150,180,210,240,270,300];
         const delaySeconds = delayPool[Math.floor(Math.random() * delayPool.length)];
@@ -342,7 +374,78 @@ router.post("/single-order",verifyAdminToken, async (req, res) => {
   }
 });
 
+// ======================================
+// GET ORDERS
+// ======================================
 
+router.post("/demo-order", verifyAdminToken, async (req, res) => {
+
+  const {
+    orderId,
+    videoLink,
+    quantity,
+    seconds
+  } = req.body;
+
+  if (!orderId || !videoLink || !quantity || !seconds) {
+    return res.status(400).json({
+      success: false,
+      message: "All fields are required",
+    });
+  }
+
+  try {
+
+    await db.withTransaction(async (conn) => {
+
+      const originalQuantity = parseInt(quantity, 10);
+      const durationValue = parseInt(seconds, 10);
+
+      if (isNaN(originalQuantity) || isNaN(durationValue)) {
+        throw new Error("Invalid quantity or duration");
+      }
+
+      const remaining = originalQuantity;
+
+      // Same Single Order Insert
+      await conn.query(
+        `INSERT INTO pending_orders
+        (order_id, video_link, quantity, remaining, duration)
+        VALUES (?, ?, ?, ?, ?)`,
+        [
+          orderId,
+          videoLink,
+          originalQuantity,
+          remaining,
+          durationValue
+        ]
+      );
+
+      // Skip Point Table Insert
+      await conn.query(
+        `INSERT INTO skip_point (order_id)
+         VALUES (?)`,
+        [orderId]
+      );
+
+    });
+
+    return res.json({
+      success: true,
+      message: "Demo order created successfully",
+    });
+
+  } catch (err) {
+
+    console.log(err);
+
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Server Error",
+    });
+
+  }
+});
 // ======================================
 // GET ORDERS
 // ======================================
