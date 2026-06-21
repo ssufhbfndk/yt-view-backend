@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const admin = require("firebase-admin");
 const { queryAsync } = require("../config/db");
-const {verifyAdminToken} = require("../middleware/authMiddleware");
+const {verifyAdminToken,verifyUserToken} = require("../middleware/authMiddleware");
 const { getTransactionsData } = require("../controllers/adminFunctionsController");
 // ================================
 // GET TRANSACTIONS VIEW API
@@ -470,7 +470,7 @@ router.get("/view-payment-management",verifyAdminToken, async (req, res) => {
 });
 
 // 📌 GET WALLET DATA (WITH USERNAME)
-router.get("/wallet-data/:username", async (req, res) => {
+router.get("/wallet-data/:username",verifyUserToken, async (req, res) => {
   const { username } = req.params;
 
   if (!username) {
