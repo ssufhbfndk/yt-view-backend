@@ -527,7 +527,7 @@ router.get("/wallet-data/:username",verifyUserToken, async (req, res) => {
 
 // withdraw-payment
 
-router.post("/withdraw-payment", async (req, res) => {
+router.post("/withdraw-payment",verifyUserToken, async (req, res) => {
   const {
     username,
     bank_name,
@@ -748,7 +748,7 @@ await Promise.all(
 
 //payment history
 
-router.get("/payment-history/:username", async (req, res) => {
+router.get("/payment-history/:username",verifyUserToken, async (req, res) => {
 
   const { username } = req.params;
 
