@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const admin = require("firebase-admin");
 const db = require("../config/db");
+const socket = require("../socket");
 const { queryAsync } = db;
 const {verifyAdminToken,verifyUserToken} = require("../middleware/authMiddleware");
 const { getTransactionsData } = require("../controllers/adminFunctionsController");

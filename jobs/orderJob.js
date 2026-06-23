@@ -30,7 +30,7 @@ setInterval(async () => {
   }
 }, 30 * 60 * 1000);
 
-// 🟡 Run IP cleanup every 10 minutes
+// 🟡 Run IP cleanup every 30 minutes
 const scheduleIpCleanup = () => {
   setInterval(async () => {
     try {
@@ -39,7 +39,7 @@ const scheduleIpCleanup = () => {
     } catch (error) {
       console.error("❌ Error running IP cleanup:", error);
     }
-  }, 10 * 60 * 1000);
+  }, 30 * 60 * 1000);
 };
 
 // Start IP cleanup
