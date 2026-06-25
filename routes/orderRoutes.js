@@ -165,7 +165,7 @@ router.post("/fetch-order", async (req, res) => {
 
 } else {
 
-        const delayPool = [5,15,30,45,60,75,90,120,150,180,210,240,270,300];
+        const delayPool = [45,60,75,90,120,150,180,210,240,270,300];
         const delaySeconds = delayPool[Math.floor(Math.random() * delayPool.length)];
 
         await conn.query(
