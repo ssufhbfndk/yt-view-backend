@@ -462,96 +462,219 @@ router.get(
 );
 
 
-router.post("/delete-multiple", verifyAdminToken, async (req, res) => {
+
+
+
+
+router.post("/delete-multiple",verifyAdminToken, async (req, res) => {
+
   try {
+
+
+
     const { orders } = req.body;
 
-    // ==========================
+
+
+    // =====================================
+
     // VALIDATION
-    // ==========================
+
+    // =====================================
+
     if (!orders || !Array.isArray(orders) || orders.length === 0) {
+
       return res.status(400).json({
+
         success: false,
+
         message: "No orders selected",
+
       });
+
     }
 
-    // ==========================
-    // ORDER IDS
-    // ==========================
-    const orderIds = [
-      ...new Set(
-        orders
-          .map((item) => item?.order_id)
-          .filter(Boolean)
-      ),
-    ];
 
-    if (orderIds.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid order ids",
-      });
-    }
 
-    // ==========================
-    // TABLES
-    // ==========================
+    // =====================================
+
+    // TABLES PRIORITY
+
+    // =====================================
+
     const tables = [
+
       "pending_orders",
+
       "error_orders",
+
       "invalid_orders",
+
       "orders",
+
       "temp_orders",
+
       "complete_orders",
+
     ];
 
-    // ==========================
-    // START TRANSACTION
-    // ==========================
-    await db.queryAsync("START TRANSACTION");
 
-    const chunkSize = 500;
 
-    for (let i = 0; i < orderIds.length; i += chunkSize) {
-      const chunk = orderIds.slice(i, i + chunkSize);
+    // =====================================
 
-      await Promise.all(
-        tables.map((table) =>
-          db.queryAsync(
-            `DELETE FROM ${table} WHERE order_id IN (?)`,
-            [chunk]
-          )
-        )
-      );
+    // DELETE LOOP
+
+    // =====================================
+
+    for (const item of orders) {
+
+
+
+      const orderId = item?.order_id;
+
+
+
+      if (!orderId) continue;
+
+
+
+      let deleted = false;
+
+
+
+      // =====================================
+
+      // SMART TABLE SEARCH
+
+      // =====================================
+
+      for (const table of tables) {
+
+
+
+        // check exists
+
+        const exists = await db.queryAsync(
+
+          `SELECT order_id FROM ${table} WHERE order_id = ? LIMIT 1`,
+
+          [orderId]
+
+        );
+
+
+
+        // db overload protection
+
+        if (exists === null) {
+
+          return res.status(503).json({
+
+            success: false,
+
+            message: "Database busy, try again",
+
+          });
+
+        }
+
+
+
+        // found
+
+        if (exists.length > 0) {
+
+
+
+          const del = await db.queryAsync(
+
+            `DELETE FROM ${table} WHERE order_id = ?`,
+
+            [orderId]
+
+          );
+
+
+
+          if (del === null) {
+
+            return res.status(500).json({
+
+              success: false,
+
+              message: "Delete failed",
+
+            });
+
+          }
+
+
+
+          deleted = true;
+
+
+
+          console.log(`✅ Deleted ${orderId} from ${table}`);
+
+
+
+          break;
+
+        }
+
+      }
+
+
+
+      // optional log
+
+      if (!deleted) {
+
+        console.log(`⚠️ Order not found: ${orderId}`);
+
+      }
+
     }
 
-    // ==========================
-    // COMMIT
-    // ==========================
-    await db.queryAsync("COMMIT");
+
+
+    // =====================================
+
+    // SUCCESS RESPONSE
+
+    // =====================================
 
     return res.json({
+
       success: true,
+
       message: "Orders deleted successfully",
+
     });
+
+
 
   } catch (err) {
 
-    try {
-      await db.queryAsync("ROLLBACK");
-    } catch (e) {}
+
 
     console.log("DELETE MULTIPLE ERROR:", err);
 
-    return res.status(500).json({
-      success: false,
-      message: "Delete failed",
-      error: err.message,
-    });
-  }
-});
 
+
+    return res.status(500).json({
+
+      success: false,
+
+      message: "Delete failed",
+
+      error: err.message,
+
+    });
+
+  }
+
+});
 module.exports = router;
 
 
