@@ -462,14 +462,13 @@ router.get(
 );
 
 
-router.post("/delete-multiple",verifyAdminToken, async (req, res) => {
+router.post("/delete-multiple", verifyAdminToken, async (req, res) => {
   try {
-
     const { orders } = req.body;
 
-    // =====================================
+    // ==========================
     // VALIDATION
-    // =====================================
+    // ==========================
     if (!orders || !Array.isArray(orders) || orders.length === 0) {
       return res.status(400).json({
         success: false,
@@ -477,9 +476,27 @@ router.post("/delete-multiple",verifyAdminToken, async (req, res) => {
       });
     }
 
-    // =====================================
-    // TABLES PRIORITY
-    // =====================================
+    // ==========================
+    // ORDER IDS
+    // ==========================
+    const orderIds = [
+      ...new Set(
+        orders
+          .map((item) => item?.order_id)
+          .filter(Boolean)
+      ),
+    ];
+
+    if (orderIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid order ids",
+      });
+    }
+
+    // ==========================
+    // TABLES
+    // ==========================
     const tables = [
       "pending_orders",
       "error_orders",
@@ -489,74 +506,41 @@ router.post("/delete-multiple",verifyAdminToken, async (req, res) => {
       "complete_orders",
     ];
 
-    // =====================================
-    // DELETE LOOP
-    // =====================================
-    for (const item of orders) {
+    // ==========================
+    // START TRANSACTION
+    // ==========================
+    await db.queryAsync("START TRANSACTION");
 
-      const orderId = item?.order_id;
+    const chunkSize = 500;
 
-      if (!orderId) continue;
+    for (let i = 0; i < orderIds.length; i += chunkSize) {
+      const chunk = orderIds.slice(i, i + chunkSize);
 
-      let deleted = false;
-
-      // =====================================
-      // SMART TABLE SEARCH
-      // =====================================
-      for (const table of tables) {
-
-        // check exists
-        const exists = await db.queryAsync(
-          `SELECT order_id FROM ${table} WHERE order_id = ? LIMIT 1`,
-          [orderId]
-        );
-
-        // db overload protection
-        if (exists === null) {
-          return res.status(503).json({
-            success: false,
-            message: "Database busy, try again",
-          });
-        }
-
-        // found
-        if (exists.length > 0) {
-
-          const del = await db.queryAsync(
-            `DELETE FROM ${table} WHERE order_id = ?`,
-            [orderId]
-          );
-
-          if (del === null) {
-            return res.status(500).json({
-              success: false,
-              message: "Delete failed",
-            });
-          }
-
-          deleted = true;
-
-          console.log(`✅ Deleted ${orderId} from ${table}`);
-
-          break;
-        }
-      }
-
-      // optional log
-      if (!deleted) {
-        console.log(`⚠️ Order not found: ${orderId}`);
-      }
+      await Promise.all(
+        tables.map((table) =>
+          db.queryAsync(
+            `DELETE FROM ${table} WHERE order_id IN (?)`,
+            [chunk]
+          )
+        )
+      );
     }
 
-    // =====================================
-    // SUCCESS RESPONSE
-    // =====================================
+    // ==========================
+    // COMMIT
+    // ==========================
+    await db.queryAsync("COMMIT");
+
     return res.json({
       success: true,
       message: "Orders deleted successfully",
     });
 
   } catch (err) {
+
+    try {
+      await db.queryAsync("ROLLBACK");
+    } catch (e) {}
 
     console.log("DELETE MULTIPLE ERROR:", err);
 
