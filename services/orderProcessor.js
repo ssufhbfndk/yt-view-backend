@@ -63,7 +63,6 @@ const processPendingOrders = async () => {
     // VIDEO ID
     // =====================================
     const videoId = getYouTubeVideoId(video_link);
-
     // =====================================
     // INVALID LINK
     // =====================================

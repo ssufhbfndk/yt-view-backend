@@ -128,38 +128,43 @@ const getVideoTypeAndDuration = async (videoId, url, passedDuration) => {
     const isoToSec = (iso) => {
       const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
       if (!match) return 0;
-      return (parseInt(match[1] || 0) * 3600) +
-             (parseInt(match[2] || 0) * 60) +
-             (parseInt(match[3] || 0));
+      return (
+        (parseInt(match[1] || 0) * 3600) +
+        (parseInt(match[2] || 0) * 60) +
+        parseInt(match[3] || 0)
+      );
     };
 
     const durationSeconds = isoToSec(contentDetails.duration);
 
-    let type = 'long';
+    let type = "long";
     try {
       const parsed = new URL(url);
-      if (parsed.pathname.startsWith('/shorts/')) {
-        type = 'short';
-      } else if (snippet.liveBroadcastContent === 'live') {
-        type = 'live';
+      if (parsed.pathname.startsWith("/shorts/")) {
+        type = "short";
+      } else if (snippet.liveBroadcastContent === "live") {
+        type = "live";
       }
     } catch {
-      if (snippet.liveBroadcastContent === 'live') {
-        type = 'live';
+      if (snippet.liveBroadcastContent === "live") {
+        type = "live";
       }
     }
 
     let multiplier = 1;
     let finalDuration = durationSeconds;
 
-    if (type === 'short') {
-      if (durationSeconds <= 119) {
-        multiplier = 3;
-        finalDuration = (durationSeconds * 3) + 15;
+    // ✅ Shorts Rule
+    if (type === "short") {
+      multiplier = 1;
+
+      if (durationSeconds >= 15) {
+        finalDuration = 15;
       } else {
-        finalDuration = Math.floor(Math.random() * 21) + 10;
+        finalDuration = durationSeconds;
       }
     } else {
+      // Long videos
       const pending = parseInt(passedDuration || 0, 10);
       if (pending > 0) {
         finalDuration = Math.min(durationSeconds, pending);
@@ -170,14 +175,14 @@ const getVideoTypeAndDuration = async (videoId, url, passedDuration) => {
       type,
       originalDuration: durationSeconds,
       multiplier,
-      finalDuration
+      finalDuration,
     };
 
   } catch (err) {
     console.error("❌ Duration API error:", err.response?.data || err.message);
 
     return {
-      error: "YouTube API error"
+      error: "YouTube API error",
     };
   }
 };
