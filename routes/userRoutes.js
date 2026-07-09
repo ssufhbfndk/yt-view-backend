@@ -79,53 +79,28 @@ router.get("/search-users",
 // UPDATE USER API
 // ===============================
 
-router.put("/update-user",verifyAdminToken, async (req, res) => {
-
+router.put("/update-user", verifyAdminToken, async (req, res) => {
   try {
-
     const {
       user_id,
       number,
+      email,
       status
     } = req.body;
 
     // =========================
-    // VALIDATION
+    // USER ID VALIDATION
     // =========================
 
     if (!user_id) {
-
       return res.status(400).json({
         success: false,
         message: "User ID is required",
       });
-
-    }
-
-    if (!number || number.trim() === "") {
-
-      return res.status(400).json({
-        success: false,
-        message: "Mobile number is required",
-      });
-
-    }
-
-    // ✅ STATUS ONLY 0 / 1
-    if (
-      status != 0 &&
-      status != 1
-    ) {
-
-      return res.status(400).json({
-        success: false,
-        message: "Status must be 0 or 1",
-      });
-
     }
 
     // =========================
-    // CHECK USER
+    // CHECK USER EXISTS
     // =========================
 
     const checkUser = await queryAsync(
@@ -139,62 +114,117 @@ router.put("/update-user",verifyAdminToken, async (req, res) => {
     );
 
     if (!checkUser || checkUser.length === 0) {
-
       return res.status(404).json({
         success: false,
         message: "User not found",
       });
-
     }
+
+    // =========================
+    // DYNAMIC UPDATE
+    // =========================
+
+    const fields = [];
+    const values = [];
+
+    // Mobile
+    if (number !== undefined) {
+
+      const mobile = number.trim();
+
+      if (!/^03\d{9}$/.test(mobile)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid mobile number",
+        });
+      }
+
+      fields.push("number = ?");
+      values.push(mobile);
+    }
+
+    // Email
+    if (email !== undefined) {
+
+      const emailValue = email.trim();
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+      if (!emailRegex.test(emailValue)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid email address",
+        });
+      }
+
+      // Duplicate Email Check
+      const checkEmail = await queryAsync(
+        `
+        SELECT id
+        FROM user
+        WHERE email = ?
+        AND id != ?
+        LIMIT 1
+        `,
+        [emailValue, user_id]
+      );
+
+      if (checkEmail.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Email already exists",
+        });
+      }
+
+      fields.push("email = ?");
+      values.push(emailValue);
+    }
+
+    // Status
+    if (status !== undefined) {
+
+      if (status != 0 && status != 1) {
+        return res.status(400).json({
+          success: false,
+          message: "Status must be 0 or 1",
+        });
+      }
+
+      fields.push("status = ?");
+      values.push(status);
+    }
+
+    // Nothing to Update
+    if (fields.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No fields to update",
+      });
+    }
+
+    values.push(user_id);
 
     // =========================
     // UPDATE USER
     // =========================
 
-    const updateUser = await queryAsync(
+    await queryAsync(
       `
       UPDATE user
-      SET
-        number = ?,
-        status = ?
+      SET ${fields.join(", ")}
       WHERE id = ?
       `,
-      [
-        number.trim(),
-        status, // ✅ 0 / 1 direct save
-        user_id
-      ]
+      values
     );
-
-    if (updateUser === null) {
-
-      return res.status(500).json({
-        success: false,
-        message: "Database error",
-      });
-
-    }
-
-    // =========================
-    // SUCCESS
-    // =========================
 
     return res.status(200).json({
       success: true,
       message: "User updated successfully",
-      updated_user: {
-        id: user_id,
-        number,
-        status,
-      }
     });
 
   } catch (error) {
 
-    console.log(
-      "UPDATE USER ERROR:",
-      error.message
-    );
+    console.log("UPDATE USER ERROR:", error);
 
     return res.status(500).json({
       success: false,
@@ -202,7 +232,6 @@ router.put("/update-user",verifyAdminToken, async (req, res) => {
     });
 
   }
-
 });
 
 // get num of watch video
