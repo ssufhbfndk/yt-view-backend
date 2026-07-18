@@ -14,11 +14,11 @@ const cleanupOldIpTracking = async () => {
 
     deletedShort = shortResult.affectedRows || 0;
 
-    // 🔥 OTHER TYPES CLEANUP (24 hours old)
+    // 🔥 OTHER TYPES CLEANUP (2 hours old)
     const normalResult = await db.queryAsync(`
       DELETE FROM order_ip_tracking
       WHERE type <> 'short'
-      AND timestamp < (NOW() - INTERVAL 24 HOUR)
+      AND timestamp < (NOW() - INTERVAL 2 HOUR)
     `);
 
     deletedNormal = normalResult.affectedRows || 0;
