@@ -3,6 +3,8 @@ const router = express.Router();
 const db = require('../config/db');  // Assuming db.js is where your MySQL connection is set up
 const {verifyAdminToken} = require("../middleware/authMiddleware");
 const { getOrdersData} = require("../controllers/adminFunctionsController");
+
+
 router.post("/fetch-order", async (req, res) => {
   const { username, ip, model } = req.body;
 
@@ -78,7 +80,7 @@ router.post("/fetch-order", async (req, res) => {
     WHERE p.order_id = o.order_id
   )
 
-  ORDER BY o.id DESC
+  ORDER BY RAND()
   LIMIT 1
   FOR UPDATE
   `,
@@ -227,6 +229,8 @@ router.post("/fetch-order", async (req, res) => {
     });
   }
 });
+
+
 //add muliti order
 router.post("/multi-orders",verifyAdminToken, async (req, res) => {
   const { orders } = req.body;
