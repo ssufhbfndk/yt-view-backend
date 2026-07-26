@@ -679,6 +679,144 @@ router.post("/delete-multiple",verifyAdminToken, async (req, res) => {
   }
 
 });
+
+
+router.post("/update-errors", verifyAdminToken, async (req, res) => {
+  try {
+    const { orders } = req.body;
+
+    // =========================
+    // VALIDATION
+    // =========================
+    if (!Array.isArray(orders) || orders.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No orders selected",
+      });
+    }
+
+    let updated = 0;
+
+    // =========================
+    // TRANSACTION
+    // =========================
+    await db.withTransaction(async (conn) => {
+
+      for (const item of orders) {
+
+        // Order ID
+        const orderId = String(item.order_id || "").trim();
+
+        if (!orderId) {
+          continue;
+        }
+
+        // =========================
+        // GET ORDER FROM ERROR TABLE
+        // =========================
+        const [rows] = await conn.query(
+          `
+          SELECT
+            order_id,
+            video_link,
+            quantity,
+            remaining,
+            duration
+          FROM error_orders
+          WHERE order_id = ?
+          LIMIT 1
+          FOR UPDATE
+          `,
+          [orderId]
+        );
+
+        if (!rows.length) {
+          continue;
+        }
+
+        const order = rows[0];
+
+        // =========================
+        // DUPLICATE CHECK
+        // =========================
+        const [exist] = await conn.query(
+          `
+          SELECT id
+          FROM pending_orders
+          WHERE order_id = ?
+          LIMIT 1
+          `,
+          [order.order_id]
+        );
+
+        if (exist.length) {
+          continue;
+        }
+
+        // =========================
+        // INSERT INTO PENDING
+        // =========================
+        const [insertResult] = await conn.query(
+          `
+          INSERT INTO pending_orders
+          (
+            order_id,
+            video_link,
+            quantity,
+            remaining,
+            duration,
+            timestamp
+          )
+          VALUES (?, ?, ?, ?, ?, NOW())
+          `,
+          [
+            order.order_id,
+            order.video_link,
+            order.quantity,
+            order.remaining,
+            order.duration,
+          ]
+        );
+
+        if (!insertResult.affectedRows) {
+          throw new Error(`Failed to insert ${order.order_id}`);
+        }
+
+        // =========================
+        // DELETE FROM ERROR
+        // =========================
+        const [deleteResult] = await conn.query(
+          `
+          DELETE FROM error_orders
+          WHERE order_id = ?
+          `,
+          [order.order_id]
+        );
+
+        if (!deleteResult.affectedRows) {
+          throw new Error(`Failed to delete ${order.order_id}`);
+        }
+
+        updated++;
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `${updated} order(s) moved to pending successfully.`,
+    });
+
+  } catch (err) {
+
+    console.error("Update Error:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Failed to update orders.",
+    });
+
+  }
+});
 module.exports = router;
 
 

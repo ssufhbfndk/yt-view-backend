@@ -27,7 +27,7 @@ const cleanupOldIpTracking = async () => {
     console.log(
       `🧹 Cleanup completed:
       - SHORT (>2h): ${deletedShort}
-      - OTHER (>24h): ${deletedNormal}
+      - OTHER (>2h): ${deletedNormal}
       - TOTAL: ${deletedShort + deletedNormal}
       - TIME: ${new Date().toISOString()}`
     );
