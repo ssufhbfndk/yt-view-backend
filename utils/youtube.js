@@ -4,35 +4,93 @@ const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
 // ===============================
 // 🔹 Extract Video ID
 // ===============================
+// ===============================
+// 🔹 Extract + Validate YouTube Video ID
+// ===============================
 const getYouTubeVideoId = (url) => {
   try {
-    const parsedUrl = new URL(url);
-    const hostname = parsedUrl.hostname.replace('www.', '').replace('m.', '');
+    if (!url) return null;
 
+    const parsedUrl = new URL(String(url).trim());
+
+    let hostname = parsedUrl.hostname
+      .toLowerCase()
+      .replace(/^www\./, '')
+      .replace(/^m\./, '');
+
+    let videoId = null;
+
+    // =====================================
+    // youtu.be/VIDEO_ID
+    // =====================================
     if (hostname === 'youtu.be') {
-      return parsedUrl.pathname.slice(1);
+      videoId = parsedUrl.pathname.split('/')[1];
     }
 
-    const validHostnames = ['youtube.com', 'youtube-nocookie.com'];
+    // =====================================
+    // youtube.com
+    // =====================================
+    else if (
+      hostname === 'youtube.com' ||
+      hostname === 'youtube-nocookie.com'
+    ) {
 
-    if (validHostnames.includes(hostname)) {
       const path = parsedUrl.pathname;
 
+      // youtube.com/watch?v=VIDEO_ID
       if (path === '/watch') {
-        return parsedUrl.searchParams.get('v');
+        videoId = parsedUrl.searchParams.get('v');
       }
 
-      if (
-        path.startsWith('/shorts/') ||
-        path.startsWith('/embed/') ||
-        path.startsWith('/live/') ||
-        path.startsWith('/v/')
-      ) {
-        return path.split('/')[2] || path.split('/')[1];
+      // youtube.com/shorts/VIDEO_ID
+      else if (path.startsWith('/shorts/')) {
+        videoId = path.split('/')[2];
+      }
+
+      // youtube.com/embed/VIDEO_ID
+      else if (path.startsWith('/embed/')) {
+        videoId = path.split('/')[2];
+      }
+
+      // youtube.com/live/VIDEO_ID
+      else if (path.startsWith('/live/')) {
+        videoId = path.split('/')[2];
+      }
+
+      // youtube.com/v/VIDEO_ID
+      else if (path.startsWith('/v/')) {
+        videoId = path.split('/')[2];
       }
     }
 
-    return null;
+    if (!videoId) {
+      return null;
+    }
+
+    // =====================================
+    // 🔥 CLEAN VIDEO ID
+    // =====================================
+    // Agar malformed URL ki wajah se:
+    // VIDEO_ID?si=xxxxx
+    // VIDEO_ID&si=xxxxx
+    // VIDEO_ID#something
+    // aa gaya ho to sirf actual ID rakho.
+    videoId = videoId
+      .split('?')[0]
+      .split('&')[0]
+      .split('#')[0]
+      .trim();
+
+    // =====================================
+    // 🔥 YouTube Video ID must be 11 chars
+    // =====================================
+    if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+      console.log(`❌ Invalid YouTube Video ID: ${videoId}`);
+      return null;
+    }
+
+    return videoId;
+
   } catch (e) {
     console.error('❌ URL parse error:', e.message);
     return null;
