@@ -1,13 +1,13 @@
 const { queryAsync } = require("../config/db");
 
-// 🧹 Delete old model devices (default: 24 hours)
+// 🧹 Delete old model devices (default: 12 hours)
 const cleanOldModelDevices = async () => {
   try {
     console.log("🧹 ModelDevices Cleanup Started:", new Date());
 
     const result = await queryAsync(`
     DELETE FROM model_devices
-WHERE timestamp < NOW() - INTERVAL 24 HOUR;
+WHERE timestamp < NOW() - INTERVAL 12 HOUR;
     `);
 
     if (result === null) {
