@@ -4,8 +4,6 @@ const router = express.Router();
 const db = require("../config/db"); // MySQL Connection
 const bcrypt = require("bcrypt");
 const { queryAsync,  } = require("../config/db");
-const socket = require("../socket");
-const admin = require("../firebaseAdmin");
 const {verifyAdminToken} = require("../middleware/authMiddleware");
 const {
   getUsersData
