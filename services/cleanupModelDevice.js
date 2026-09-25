@@ -7,7 +7,7 @@ const cleanOldModelDevices = async () => {
 
     const result = await queryAsync(`
     DELETE FROM model_devices
-WHERE timestamp < NOW() - INTERVAL 12 HOUR;
+WHERE timestamp < NOW() - INTERVAL 1 HOUR;
     `);
 
     if (result === null) {
