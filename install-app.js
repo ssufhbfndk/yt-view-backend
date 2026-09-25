@@ -12,10 +12,10 @@ app.get("/download-apk", (req, res) => {
     const filePath = path.join(
         __dirname,
         "public-download",
-        "ythub.1.4.1.apk"
+        "ythub.1.4.2.apk"
     );
 
-    res.download(filePath, "ythub.1.4.1.apk", (err) => {
+    res.download(filePath, "ythub.1.4.2.apk", (err) => {
 
         if (err) {
 
