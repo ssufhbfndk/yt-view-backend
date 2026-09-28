@@ -6,13 +6,13 @@ const { getOrdersData} = require("../controllers/adminFunctionsController");
 
 
 router.post("/fetch-order", async (req, res) => {
-  const { username, ip, model } = req.body;
+  const { username, ip, model,app_version } = req.body;
 
-  // ✅ Validation
-  if (!username || !ip || !model) {
+   // ✅ Required validation
+  if (!username || !ip || !model || !app_version) {
     return res.status(400).json({
       success: false,
-      message: "Username, IP and Model required"
+      message: "Username, IP, Model and App Version required"
     });
   }
 
@@ -22,7 +22,35 @@ router.post("/fetch-order", async (req, res) => {
       message: "Invalid username"
     });
   }
+  /*
+ // ✅ Minimum App Version
+  const MIN_APP_VERSION = "1.3.12";
 
+  function compareVersions(v1, v2) {
+    const a = v1.split(".").map(Number);
+    const b = v2.split(".").map(Number);
+
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      const x = a[i] || 0;
+      const y = b[i] || 0;
+
+      if (x > y) return 1;
+      if (x < y) return -1;
+    }
+
+    return 0;
+  }
+
+  if (compareVersions(app_version, MIN_APP_VERSION) < 0) {
+    return res.status(426).json({
+      success: false,
+      update_required: true,
+      current_version: app_version,
+      minimum_version: MIN_APP_VERSION,
+      message: `Please update your app to version ${MIN_APP_VERSION}`
+    });
+  }
+  */
   const profileTable = `profile_${username}`;
 
   try {
